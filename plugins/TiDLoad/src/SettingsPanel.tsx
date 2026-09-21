@@ -15,6 +15,7 @@ import { DEFAULT_PATH_FORMAT, SAMPLE_TAGS, TEMPLATE_PRESETS, renderTemplate } fr
 import { platformSeparator } from "./core/paths";
 import { qualityOptions } from "./core/quality";
 import { clearQueue, downloadedCount, engine, forgetDownloaded } from "./engine";
+import { ffmpegStatus, refreshFfmpegStatus, setFfmpegPath } from "./ffmpeg";
 import { clearPersistedItems, setDownloadQuality, settings } from "./settings";
 import { refreshNowPlayingButton } from "./nowPlaying";
 import { refreshPlayQueueButton } from "./playQueue";
@@ -31,6 +32,89 @@ const openFolderDialog = async (): Promise<string | undefined> => {
 	});
 	if (canceled) return undefined;
 	return filePaths?.[0];
+};
+
+const pickFfmpeg = async (): Promise<string | undefined> => {
+	const { canceled, filePaths } = await showOpenDialog({
+		title: "Select the ffmpeg executable",
+		properties: ["openFile"],
+	});
+	if (canceled) return undefined;
+	return filePaths?.[0];
+};
+
+/**
+ * ffmpeg status row.
+ *
+ * Running the check is the first thing that needs TidaLuna's permission for `child_process`, so it is
+ * triggered by opening the settings (not by loading the plugin).
+ */
+const FfmpegRow = () => {
+	const status = React.useSyncExternalStore(ffmpegStatus.subscribe, ffmpegStatus.get, ffmpegStatus.get);
+	const [checkedOnce, setCheckedOnce] = React.useState(false);
+
+	React.useEffect(() => {
+		if (checkedOnce) return;
+		setCheckedOnce(true);
+		void refreshFfmpegStatus();
+	}, [checkedOnce]);
+
+	const state = status.checking
+		? "Checking…"
+		: status.path !== undefined && status.path !== null
+			? `Found: ffmpeg ${status.version ?? "(version unknown)"} — ${status.path}`
+			: status.error !== undefined
+				? `Not usable: ${status.error}`
+				: status.checked
+					? "Not found. Conversion needs ffmpeg — install it below, or point TiDLoad at an existing copy."
+					: "Not checked yet.";
+
+	return (
+		<>
+			<div className="tidload-settings__preview" style={{ whiteSpace: "normal" }}>
+				{state}
+			</div>
+			<div className="tidload-settings__presets">
+				<button type="button" className="tidload-btn tidload-btn--ghost" onClick={() => void refreshFfmpegStatus()}>
+					Re-check
+				</button>
+				<button
+					type="button"
+					className="tidload-btn tidload-btn--ghost"
+					onClick={async () => {
+						const path = await pickFfmpeg();
+						if (path === undefined) return;
+						setFfmpegPath(path);
+						const result = await refreshFfmpegStatus();
+						toast(
+							result.path !== undefined && result.path !== null
+								? `TiDLoad: ffmpeg ${result.version ?? "found"}`
+								: `TiDLoad: that file is not a usable ffmpeg (${result.error ?? "unknown error"})`,
+							{ kind: result.path !== undefined && result.path !== null ? "info" : "error" },
+						);
+					}}
+				>
+					Locate ffmpeg…
+				</button>
+				{settings.ffmpegPath !== undefined && (
+					<button
+						type="button"
+						className="tidload-btn tidload-btn--ghost"
+						onClick={() => {
+							setFfmpegPath(undefined);
+							void refreshFfmpegStatus();
+						}}
+					>
+						Forget saved path
+					</button>
+				)}
+			</div>
+			<div className="tidload-muted">
+				TiDLoad runs ffmpeg as a separate process, so the first check asks TidaLuna for file and process access (two
+				one-time prompts).
+			</div>
+		</>
+	);
 };
 
 export const Settings = () => {
@@ -248,6 +332,11 @@ export const Settings = () => {
 				max={5000}
 				onNumber={(value) => setHistoryLimit((settings.historyLimit = value))}
 			/>
+
+			<div className="tidload-settings__block">
+				<div className="tidload-settings__label">ffmpeg (for local conversion)</div>
+				<FfmpegRow />
+			</div>
 
 			<div className="tidload-settings__block">
 				<div className="tidload-settings__label">Maintenance</div>

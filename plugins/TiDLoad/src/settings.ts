@@ -43,6 +43,9 @@ if (settings.menuAction !== "start" && settings.menuAction !== "queue") settings
 if (typeof settings.sidebarEntry !== "boolean") settings.sidebarEntry = DEFAULT_SETTINGS.sidebarEntry;
 if (typeof settings.queueButton !== "boolean") settings.queueButton = DEFAULT_SETTINGS.queueButton;
 if (typeof settings.nowPlayingButton !== "boolean") settings.nowPlayingButton = DEFAULT_SETTINGS.nowPlayingButton;
+if (settings.ffmpegPath !== undefined && (typeof settings.ffmpegPath !== "string" || settings.ffmpegPath.trim() === "")) {
+	settings.ffmpegPath = undefined;
+}
 if (typeof settings.skipExisting !== "boolean") settings.skipExisting = DEFAULT_SETTINGS.skipExisting;
 if (settings.restoreQueue !== "paused" && settings.restoreQueue !== "auto" && settings.restoreQueue !== "discard") {
 	settings.restoreQueue = DEFAULT_SETTINGS.restoreQueue;
