@@ -13,8 +13,8 @@ import { LunaButtonSetting, LunaNumberSetting, LunaSelectItem, LunaSelectSetting
 
 import { DEFAULT_PATH_FORMAT, SAMPLE_TAGS, TEMPLATE_PRESETS, renderTemplate } from "./core/template";
 import { platformSeparator } from "./core/paths";
-import { clearHistory, clearQueue, engine } from "./engine";
-import { clearPersistedHistory, clearPersistedQueue, settings } from "./settings";
+import { clearQueue, downloadedCount, engine, forgetDownloaded } from "./engine";
+import { clearPersistedItems, settings } from "./settings";
 import { refreshSidebarEntry } from "./sidebar";
 import { toast } from "./notify";
 
@@ -40,6 +40,7 @@ export const Settings = () => {
 	const [useRealMAX, setUseRealMAX] = React.useState(settings.useRealMAX);
 	const [menuAction, setMenuAction] = React.useState(settings.menuAction);
 	const [sidebarEntry, setSidebarEntry] = React.useState(settings.sidebarEntry);
+	const [skipExisting, setSkipExisting] = React.useState(settings.skipExisting);
 	const [restoreQueue, setRestoreQueue] = React.useState(settings.restoreQueue);
 	const [toasts, setToasts] = React.useState(settings.toasts);
 	const [historyLimit, setHistoryLimit] = React.useState(settings.historyLimit);
@@ -165,6 +166,13 @@ export const Settings = () => {
 			</div>
 
 			<LunaSwitchSetting
+				title="Skip files that are already downloaded"
+				desc="Before downloading, TiDLoad checks its own records and then the filesystem at the exact destination path. The filesystem check asks TidaLuna for 'fs' access once (a security prompt) — block it and TiDLoad falls back to the client's own silent skip."
+				checked={skipExisting}
+				onChange={(_event, checked) => setSkipExisting((settings.skipExisting = checked ?? true))}
+			/>
+
+			<LunaSwitchSetting
 				title="Sidebar entry"
 				desc="Show a TiDLoad button in TIDAL's left sidebar, next to Explore/Feed. Its badge shows the queue depth or the live download percentage."
 				checked={sidebarEntry}
@@ -203,8 +211,8 @@ export const Settings = () => {
 			/>
 
 			<LunaNumberSetting
-				title="History entries"
-				desc="How many completed downloads to remember. 0 keeps nothing."
+				title="Finished entries kept"
+				desc="The downloads list holds the queue and everything already downloaded. This is how many finished entries it remembers across restarts. 0 keeps none."
 				value={historyLimit}
 				min={0}
 				max={5000}
@@ -219,28 +227,28 @@ export const Settings = () => {
 						className="tidload-btn tidload-btn--ghost"
 						onClick={async () => {
 							await clearQueue();
-							toast("TiDLoad: queue cleared", { kind: "info" });
+							toast("TiDLoad: list cleared", { kind: "info" });
 						}}
 					>
-						Clear queue
+						Clear list
 					</button>
 					<button
 						type="button"
 						className="tidload-btn tidload-btn--ghost"
 						onClick={async () => {
-							await clearHistory();
-							toast("TiDLoad: history cleared", { kind: "info" });
+							const count = downloadedCount();
+							await forgetDownloaded();
+							toast(`TiDLoad: forgot ${count} download ${count === 1 ? "record" : "records"}`, { kind: "info" });
 						}}
 					>
-						Clear history
+						Forget download records
 					</button>
 					<button
 						type="button"
 						className="tidload-btn tidload-btn--ghost"
 						onClick={async () => {
-							await clearPersistedQueue();
-							await clearPersistedHistory();
-							toast("TiDLoad: stored queue and history removed", { kind: "info" });
+							await clearPersistedItems();
+							toast("TiDLoad: stored list removed (the current session keeps its entries until restart)", { kind: "info" });
 						}}
 					>
 						Reset stored data
@@ -248,7 +256,7 @@ export const Settings = () => {
 					<button
 						type="button"
 						className="tidload-btn tidload-btn--ghost"
-						onClick={() => toast(`TiDLoad: ${engine.get().items.length} items in the queue`, { kind: "info" })}
+						onClick={() => toast(`TiDLoad: ${engine.get().items.length} entries in the list`, { kind: "info" })}
 					>
 						Test toast
 					</button>

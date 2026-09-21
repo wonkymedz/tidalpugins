@@ -3,7 +3,7 @@
  * reasoned about (and unit tested) without React or the TIDAL client.
  */
 
-import type { HistoryEntry, QueueItem, TrackMeta } from "../types";
+import type { QueueItem, TrackMeta } from "../types";
 
 export const isFinished = (item: QueueItem): boolean => item.status === "done" || item.status === "skipped";
 export const isActive = (item: QueueItem): boolean => item.status === "active";
@@ -32,6 +32,8 @@ export type AddOptions = {
 	 * clicking download twice does not re-run everything; on for explicit single track re-downloads.
 	 */
 	requeueFinished?: boolean;
+	/** Specific finished tracks to re-queue regardless of `requeueFinished` (used when the file is gone). */
+	requeueTracks?: ReadonlySet<number>;
 };
 
 export type AddResult = {
@@ -60,7 +62,10 @@ export const addItems = (items: QueueItem[], incoming: QueueItem[], options: Add
 		}
 
 		const existing = next[existingIndex];
-		const shouldRequeue = existing.status === "failed" || (options.requeueFinished === true && isFinished(existing));
+		const shouldRequeue =
+			existing.status === "failed" ||
+			(options.requeueFinished === true && isFinished(existing)) ||
+			options.requeueTracks?.has(item.trackId) === true;
 		if (!shouldRequeue) {
 			duplicates++;
 			continue;
@@ -71,6 +76,9 @@ export const addItems = (items: QueueItem[], incoming: QueueItem[], options: Add
 			...item,
 			status: "pending",
 			error: undefined,
+			path: undefined,
+			skipReason: undefined,
+			existingSize: undefined,
 			downloaded: 0,
 			total: 0,
 			speed: 0,
@@ -161,29 +169,23 @@ export const stats = (items: QueueItem[]): QueueStats => {
 	return result;
 };
 
-export const toHistoryEntry = (item: QueueItem, now = Date.now()): HistoryEntry => ({
-	trackId: item.trackId,
-	title: item.title,
-	artist: item.artist,
-	album: item.album,
-	qualityName: item.qualityName,
-	status: item.status === "done" ? "done" : item.status === "skipped" ? "skipped" : "failed",
-	path: item.path,
-	error: item.error,
-	at: now,
-});
-
-export const pushHistory = (history: HistoryEntry[], entry: HistoryEntry, limit: number): HistoryEntry[] => {
-	const next = [entry, ...history];
-	return limit > 0 && next.length > limit ? next.slice(0, limit) : next;
+/** The list is a single timeline: active first, then queued in order, then finished newest first. */
+export const orderForDisplay = (items: QueueItem[]): QueueItem[] => {
+	const active = items.filter((item) => item.status === "active");
+	const pending = items.filter((item) => item.status === "pending");
+	const finished = items
+		.filter((item) => item.status === "done" || item.status === "failed" || item.status === "skipped")
+		.sort((a, b) => (b.finishedAt ?? b.addedAt) - (a.finishedAt ?? a.addedAt));
+	return [...active, ...pending, ...finished];
 };
 
 /**
- * Serialisable queue snapshot. Progress counters are deliberately dropped — they change constantly and
- * would hammer IndexedDB. Items that were mid-download when the client closed come back as pending.
+ * Serialisable snapshot: unfinished items come back as pending (progress counters are dropped — they
+ * change constantly and would hammer IndexedDB), finished items keep their result so the list doubles as
+ * history. `limit` bounds how many finished entries are kept.
  */
-export const toPersistedQueue = (items: QueueItem[]): QueueItem[] =>
-	items
+export const toPersistedItems = (items: QueueItem[], finishedLimit: number): QueueItem[] => {
+	const unfinished = items
 		.filter((item) => item.status === "pending" || item.status === "active")
 		.map((item) => ({
 			...item,
@@ -194,4 +196,13 @@ export const toPersistedQueue = (items: QueueItem[]): QueueItem[] =>
 			startedAt: undefined,
 			finishedAt: undefined,
 			error: undefined,
+			skipReason: undefined,
 		}));
+
+	const finished = items
+		.filter((item) => item.status === "done" || item.status === "failed" || item.status === "skipped")
+		.sort((a, b) => (b.finishedAt ?? b.addedAt) - (a.finishedAt ?? a.addedAt));
+
+	const kept = finishedLimit > 0 ? finished.slice(0, finishedLimit) : [];
+	return [...unfinished, ...kept];
+};

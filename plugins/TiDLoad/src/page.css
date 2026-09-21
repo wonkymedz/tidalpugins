@@ -528,6 +528,27 @@
 
 /* #endregion */
 
+/* #region context menu entries */
+
+/* TIDAL renders some context menu slots disabled; our clones must stay fully interactive. */
+[data-type="contextmenu-item"]:has([data-tidload-menu]) {
+	opacity: 1 !important;
+	pointer-events: auto !important;
+}
+
+[data-type="contextmenu-item"]:has([data-tidload-menu]) button {
+	opacity: 1 !important;
+	cursor: pointer;
+}
+
+.tidload-filters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+/* #endregion */
+
 /* #region sidebar entry */
 
 .tidload-sidebar-badge {

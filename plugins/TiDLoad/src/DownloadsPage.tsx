@@ -12,10 +12,9 @@ import { openExternal, clipboardWriteText } from "@luna/lib.native";
 
 import { formatBytes, formatDuration, formatEta, formatPercent, formatSpeed, percentOf, pluralise } from "./core/format";
 import { fileName, parentDirectory, toFileUrl } from "./core/paths";
-import { stats } from "./core/queue";
+import { orderForDisplay, stats } from "./core/queue";
 import {
 	clearCompleted,
-	clearHistory,
 	clearQueue,
 	closeArtistPicker,
 	downloadAgain,
@@ -34,7 +33,7 @@ import {
 import { toast } from "./notify";
 import { settings } from "./settings";
 import type { EngineState } from "./engine";
-import type { HistoryEntry, QueueItem } from "./types";
+import type { QueueItem } from "./types";
 
 const useEngine = (): EngineState => React.useSyncExternalStore(engine.subscribe, engine.get, engine.get);
 
@@ -43,7 +42,35 @@ const STATUS_LABEL: Record<QueueItem["status"], string> = {
 	active: "Downloading",
 	done: "Done",
 	failed: "Failed",
-	skipped: "Already present",
+	skipped: "Skipped",
+};
+
+const SKIP_LABEL: Record<NonNullable<QueueItem["skipReason"]>, string> = {
+	record: "Downloaded earlier",
+	disk: "Already on disk",
+	unchanged: "No data transferred",
+};
+
+type Filter = "all" | "queued" | "finished" | "failed";
+
+const FILTERS: { id: Filter; label: string }[] = [
+	{ id: "all", label: "All" },
+	{ id: "queued", label: "Queued" },
+	{ id: "finished", label: "Finished" },
+	{ id: "failed", label: "Failed" },
+];
+
+const matchesFilter = (item: QueueItem, filter: Filter): boolean => {
+	switch (filter) {
+		case "queued":
+			return item.status === "pending" || item.status === "active";
+		case "finished":
+			return item.status === "done" || item.status === "skipped";
+		case "failed":
+			return item.status === "failed";
+		default:
+			return true;
+	}
 };
 
 const confirmAction = async (title: string, description: string): Promise<boolean> => {
@@ -123,95 +150,119 @@ const ActiveCard = React.memo(({ item }: { item: QueueItem }) => {
 	);
 });
 
-const QueueRow = React.memo(({ item, index, pendingCount }: { item: QueueItem; index: number; pendingCount: number }) => (
-	<div className={`tidload-row tidload-row--${item.status}`}>
-		<div className="tidload-row__index">{index + 1}</div>
-		{item.coverUrl !== undefined ? (
-			<img className="tidload-row__cover" src={item.coverUrl} alt="" loading="lazy" />
-		) : (
-			<div className="tidload-row__cover tidload-row__cover--empty" />
-		)}
-		<div className="tidload-row__main">
-			<div className="tidload-row__title" title={item.title}>
-				{item.title}
-			</div>
-			<div className="tidload-row__meta">
-				{item.artist}
-				{item.album !== "" ? ` • ${item.album}` : ""} • {item.qualityName}
-				{item.duration !== undefined ? ` • ${formatDuration(item.duration)}` : ""}
-			</div>
-			{item.status === "active" && <ProgressBar downloaded={item.downloaded} total={item.total} />}
-			{item.status === "failed" && item.error !== undefined && <div className="tidload-row__error">{item.error}</div>}
-			{item.path !== undefined && (item.status === "done" || item.status === "skipped") && (
-				<div className="tidload-row__path" title={item.path}>
-					{fileName(item.path)}
-				</div>
-			)}
-		</div>
-		<div className={`tidload-chip tidload-chip--${item.status}`}>{STATUS_LABEL[item.status]}</div>
-		<div className="tidload-row__actions">
-			{item.status === "pending" && (
-				<>
-					<button
-						type="button"
-						className="tidload-btn tidload-btn--icon"
-						title="Move up"
-						disabled={index === 0}
-						onClick={() => move(item.trackId, -1)}
-					>
-						↑
-					</button>
-					<button
-						type="button"
-						className="tidload-btn tidload-btn--icon"
-						title="Move down"
-						disabled={index === pendingCount - 1}
-						onClick={() => move(item.trackId, 1)}
-					>
-						↓
-					</button>
-				</>
-			)}
-			{item.status === "done" || item.status === "skipped" ? (
-				<button type="button" className="tidload-btn tidload-btn--icon" title="Open folder" onClick={() => void reveal(item.path)}>
-					📁
-				</button>
-			) : null}
-			<button type="button" className="tidload-btn tidload-btn--icon" title="Remove from queue" onClick={() => remove(item.trackId)}>
-				✕
-			</button>
-		</div>
-	</div>
-));
+const QueueRow = React.memo(
+	({
+		item,
+		queuePosition,
+		pendingCount,
+	}: {
+		/** Position in the queue, or undefined for finished entries. */
+		queuePosition?: number;
+		item: QueueItem;
+		pendingCount: number;
+	}) => {
+		const finished = item.status === "done" || item.status === "skipped";
+		const skipNote = item.skipReason !== undefined ? SKIP_LABEL[item.skipReason] : "Skipped";
 
-const HistoryRow = React.memo(({ entry }: { entry: HistoryEntry }) => (
-	<div className="tidload-row tidload-row--history">
-		<div className="tidload-row__main">
-			<div className="tidload-row__title">{entry.title}</div>
-			<div className="tidload-row__meta">
-				{entry.artist}
-				{entry.album !== "" ? ` • ${entry.album}` : ""} • {entry.qualityName} • {new Date(entry.at).toLocaleString()}
+		return (
+			<div className={`tidload-row tidload-row--${item.status}`}>
+				<div className="tidload-row__index">{queuePosition ?? (finished ? "✓" : "•")}</div>
+				{item.coverUrl !== undefined ? (
+					<img className="tidload-row__cover" src={item.coverUrl} alt="" loading="lazy" />
+				) : (
+					<div className="tidload-row__cover tidload-row__cover--empty" />
+				)}
+				<div className="tidload-row__main">
+					<div className="tidload-row__title" title={item.title}>
+						{item.title}
+					</div>
+					<div className="tidload-row__meta">
+						{item.artist}
+						{item.album !== "" ? ` • ${item.album}` : ""} • {item.qualityName}
+						{item.duration !== undefined ? ` • ${formatDuration(item.duration)}` : ""}
+						{item.source !== "" ? ` • ${item.source}` : ""}
+					</div>
+					{item.status === "active" && <ProgressBar downloaded={item.downloaded} total={item.total} />}
+					{item.status === "failed" && item.error !== undefined && <div className="tidload-row__error">{item.error}</div>}
+					{finished && (
+						<div className="tidload-row__path" title={item.path ?? ""}>
+							{item.skipReason === "record" || item.skipReason === "disk"
+								? `${skipNote}${item.existingSize !== undefined ? ` (${formatBytes(item.existingSize)})` : ""}`
+								: item.path !== undefined
+									? `${fileName(item.path)}${item.skipReason === "unchanged" ? " • no data transferred" : ""}`
+									: skipNote}
+						</div>
+					)}
+				</div>
+				<div className={`tidload-chip tidload-chip--${item.status}`}>
+					{item.status === "skipped" && item.skipReason !== undefined && item.skipReason !== "unchanged"
+						? SKIP_LABEL[item.skipReason]
+						: STATUS_LABEL[item.status]}
+				</div>
+				<div className="tidload-row__actions">
+					{item.status === "pending" && (
+						<>
+							<button
+								type="button"
+								className="tidload-btn tidload-btn--icon"
+								title="Move up"
+								disabled={queuePosition === 1}
+								onClick={() => move(item.trackId, -1)}
+							>
+								↑
+							</button>
+							<button
+								type="button"
+								className="tidload-btn tidload-btn--icon"
+								title="Move down"
+								disabled={queuePosition === pendingCount}
+								onClick={() => move(item.trackId, 1)}
+							>
+								↓
+							</button>
+						</>
+					)}
+					{finished && (
+						<>
+							<button
+								type="button"
+								className="tidload-btn tidload-btn--icon"
+								title="Open folder"
+								onClick={() => void reveal(item.path)}
+							>
+								📁
+							</button>
+							<button
+								type="button"
+								className="tidload-btn tidload-btn--icon"
+								title="Download again"
+								onClick={() => void downloadAgain(item.trackId)}
+							>
+								↻
+							</button>
+						</>
+					)}
+					{item.status === "failed" && (
+						<button
+							type="button"
+							className="tidload-btn tidload-btn--icon"
+							title="Retry"
+							onClick={() => {
+								retryFailed();
+								start();
+							}}
+						>
+							↻
+						</button>
+					)}
+					<button type="button" className="tidload-btn tidload-btn--icon" title="Remove from list" onClick={() => remove(item.trackId)}>
+						✕
+					</button>
+				</div>
 			</div>
-			{entry.error !== undefined && <div className="tidload-row__error">{entry.error}</div>}
-		</div>
-		<div className={`tidload-chip tidload-chip--${entry.status}`}>{STATUS_LABEL[entry.status]}</div>
-		<div className="tidload-row__actions">
-			{entry.path !== undefined && (
-				<button type="button" className="tidload-btn tidload-btn--icon" title="Open folder" onClick={() => void reveal(entry.path)}>
-					📁
-				</button>
-			)}
-			<button
-				type="button"
-				className="tidload-btn tidload-btn--icon"
-				title="Download again"
-				onClick={() => void downloadAgain(entry)}
-			>
-				↻
-			</button>
-		</div>
-	</div>
-));
+		);
+	},
+);
 
 const AddBox = React.memo(() => {
 	const [value, setValue] = React.useState("");
@@ -324,10 +375,17 @@ const ArtistPicker = React.memo(() => {
 export const DownloadsPage = React.memo(() => {
 	const state = useEngine();
 	const summary = React.useMemo(() => stats(state.items), [state.items]);
+	const ordered = React.useMemo(() => orderForDisplay(state.items), [state.items]);
+	const [filter, setFilter] = React.useState<Filter>("all");
 	const active = state.items.find((item) => item.status === "active");
-	const pending = state.items.filter((item) => item.status === "pending");
-	const others = state.items.filter((item) => item.status !== "pending" && item.status !== "active");
+	const pendingCount = summary.pending;
 	const running = isRunning();
+
+	const visible = React.useMemo(() => ordered.filter((item) => matchesFilter(item, filter)), [ordered, filter]);
+	const queuedIds = React.useMemo(
+		() => new Map(state.items.filter((item) => item.status === "pending").map((item, index) => [item.trackId, index + 1])),
+		[state.items],
+	);
 
 	const onStartPause = React.useCallback(() => {
 		if (isRunning()) pause();
@@ -343,6 +401,7 @@ export const DownloadsPage = React.memo(() => {
 						{settings.saveMode === "default" && settings.defaultPath !== undefined
 							? `→ ${settings.defaultPath}`
 							: "→ asks where to save"}
+						{settings.skipExisting ? " • skips files already on disk" : ""}
 					</span>
 				</div>
 				<div className="tidload-toolbar">
@@ -378,7 +437,7 @@ export const DownloadsPage = React.memo(() => {
 				<StatCard label="Queued" value={summary.pending} />
 				<StatCard label="Downloading" value={summary.active} />
 				<StatCard label="Downloaded" value={summary.done} />
-				<StatCard label="Already present" value={summary.skipped} />
+				<StatCard label="Skipped" value={summary.skipped} />
 				<StatCard label="Failed" value={summary.failed} />
 				<StatCard label="Transferred" value={formatBytes(summary.downloadedBytes)} />
 			</section>
@@ -396,65 +455,57 @@ export const DownloadsPage = React.memo(() => {
 
 			<section className="tidload-card">
 				<header className="tidload-card__header">
-					<h2 className="tidload-card__title">Queue</h2>
-					<button
-						type="button"
-						className="tidload-btn tidload-btn--ghost"
-						disabled={state.items.length === 0}
-						onClick={async () => {
-							if (await confirmAction("Clear the TiDLoad queue?", "Queued and finished items are removed. History is kept.")) {
-								await clearQueue();
-							}
-						}}
-					>
-						Clear queue
-					</button>
+					<h2 className="tidload-card__title">Downloads</h2>
+					<div className="tidload-filters">
+						{FILTERS.map((entry) => (
+							<button
+								key={entry.id}
+								type="button"
+								className={`tidload-btn tidload-btn--ghost${filter === entry.id ? " tidload-btn--active" : ""}`}
+								onClick={() => setFilter(entry.id)}
+							>
+								{entry.label}
+								{entry.id === "failed" && summary.failed > 0 ? ` (${summary.failed})` : ""}
+							</button>
+						))}
+						<button
+							type="button"
+							className="tidload-btn tidload-btn--ghost"
+							disabled={state.items.length === 0}
+							onClick={async () => {
+								if (await confirmAction("Clear the TiDLoad list?", "Queued, finished and failed entries are all removed. Files on disk are untouched.")) {
+									await clearQueue();
+								}
+							}}
+						>
+							Clear list
+						</button>
+					</div>
 				</header>
 
 				{state.items.length === 0 ? (
 					<div className="tidload-empty">
-						Nothing queued yet. Right-click any track, album or playlist in TIDAL and choose <b>Download</b>, or paste a
-						link above.
+						Nothing here yet. Right-click any track, album or artist in TIDAL and choose <b>Download</b>, use the
+						sidebar entry, or paste a link above.
 					</div>
+				) : visible.length === 0 ? (
+					<div className="tidload-empty">No {filter} downloads.</div>
 				) : (
-					<>
-						{pending.map((item, index) => (
-							<QueueRow key={item.trackId} item={item} index={index} pendingCount={pending.length} />
-						))}
-						{others.map((item, index) => (
-							<QueueRow key={item.trackId} item={item} index={pending.length + index} pendingCount={pending.length} />
-						))}
-					</>
-				)}
-			</section>
-
-			<section className="tidload-card">
-				<header className="tidload-card__header">
-					<h2 className="tidload-card__title">History</h2>
-					<button
-						type="button"
-						className="tidload-btn tidload-btn--ghost"
-						disabled={state.history.length === 0}
-						onClick={async () => {
-							if (await confirmAction("Clear download history?", "This only clears TiDLoad's record — files on disk are untouched.")) {
-								await clearHistory();
-							}
-						}}
-					>
-						Clear history
-					</button>
-				</header>
-
-				{state.history.length === 0 ? (
-					<div className="tidload-empty">No downloads recorded yet.</div>
-				) : (
-					state.history.slice(0, 200).map((entry) => <HistoryRow key={`${entry.trackId}-${entry.at}`} entry={entry} />)
+					visible.map((item) => (
+						<QueueRow
+							key={item.trackId}
+							item={item}
+							queuePosition={item.status === "pending" ? queuedIds.get(item.trackId) : undefined}
+							pendingCount={pendingCount}
+						/>
+					))
 				)}
 			</section>
 
 			<footer className="tidload-footer">
-				TiDLoad v1.0.0 — downloads use the TidaLuna client API. In-flight downloads can't be cancelled, and a queue pause
-				takes effect after the current track.
+				TiDLoad v1.0.0 — one list holds the queue and everything already downloaded. In-flight downloads can't be
+				cancelled, so pausing takes effect after the current track. "Already on disk" means TiDLoad checked the
+				filesystem before downloading; "Downloaded earlier" comes from TiDLoad's own record.
 			</footer>
 		</div>
 	);

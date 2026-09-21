@@ -11,13 +11,16 @@ Queue up **tracks, albums, playlists and artists**, watch them download with liv
 ## Features
 
 - **Sidebar entry** — a *TiDLoad* button in TIDAL's left navigation (next to Explore/Feed), with a badge showing the queue depth or the live download percentage. Switchable in settings.
-- **Downloads manager page** (`?TiDLoad`, reachable from the sidebar, any right-click menu → *Open TiDLoad*, or the deep link `tidaluna://` routes)
+- **One downloads list** — the queue and everything already downloaded live in the same list. Filter by All / Queued / Finished / Failed; reorder queued items, retry failures, re-download or reveal finished files, clear finished entries.
+- **Skips what you already have** — before downloading, TiDLoad checks its own records and then the real filesystem at the exact destination path. Re-adding an album downloads only the tracks whose files are missing.
+- **Downloads manager page** (`?TiDLoad`, reachable from the sidebar, from any right-click menu, or the deep link `tidaluna://` routes)
   - Queue table with cover art, status, quality, per-track progress, speed and ETA
   - Pause / resume the queue, reorder pending items, remove items, retry failed ones, clear finished ones
-  - Global stats: queued, downloading, downloaded, already present, failed, bytes transferred
-- **Artist downloads** — pick an artist, choose which albums to grab from a checklist, then queue them. Works from *Download artist: …* on any track/album menu, from an artist page context menu when TIDAL exposes one, or by pasting an artist link. Playlists that mix tracks and videos keep each item's content type.
+  - Global stats: queued, downloading, downloaded, skipped, failed, bytes transferred
+- **Context menu hierarchy** — right-click a track for *Download 1 track* / *Download album* / *Download artist*, an album for *Download N tracks* / *Download artist: …*, a playlist for the playlist itself.
+- **Artist downloads** — pick an artist, choose which albums to grab from a checklist, then queue them. Works from any track/album menu, from an artist page context menu when TIDAL exposes one, or by pasting an artist link. Playlists that mix tracks and videos keep each item's content type.
 - **Add from URL or ID** — paste a Tidal track / album / playlist / artist link (or `album:12345`) into the page.
-- **Persistent queue and history** — an interrupted queue is restored (paused by default) after a restart; history remembers what was downloaded, where, and at what quality.
+- **Persistent list** — an interrupted queue is restored (paused by default) after a restart, alongside what was downloaded before.
 - **Template-driven filenames** — folders and filenames from any TIDAL tag, with a live preview in settings.
 - **RealMAX support** — optionally look up the highest quality version of each track by ISRC before downloading it.
 - **In-app toasts** when a batch finishes or something fails.
@@ -42,9 +45,21 @@ This builds to `dist/` and serves it on `http://127.0.0.1:3000`. In TIDAL open *
 
 ## Usage
 
-- **Right-click a track, album, playlist or selection** in TIDAL and use *Download N tracks* (or *Add N tracks to TiDLoad* if you set the context menu click behaviour to queue-only). An *Open TiDLoad* entry sits next to it, and *Download artist: …* appears when the selection has a single artist.
+- **Right-click a track, album, playlist or selection** in TIDAL: the menu offers *Download N tracks* (or *Add N tracks to TiDLoad* if the context menu click behaviour is queue-only), *Download album* when the selection is track(s), and *Download artist: …* when a single artist can be resolved.
+- Open TiDLoad from the **sidebar button**, or the panel it renders at `?TiDLoad` (`tidaluna://` deep links also route there).
 - Clicking the download entry while a queue is running pauses it — **the track that is already downloading finishes first**, because the TidaLuna client API cannot abort an in-flight download.
-- Everything else lives on the TiDLoad page: start/pause, retry, clear, history, re-download, and open-folder buttons.
+- Everything else lives on the page: start/pause, retry, clear, filters, re-download, open-folder and copy-path actions.
+
+## Skipping tracks you already have
+
+Before a track is downloaded, TiDLoad checks, in order:
+
+1. **Its own download records** — a track TiDLoad wrote to exactly this path before (kept even when you clear the list; forget them in settings).
+2. **The filesystem** — the real destination path, checked through a small native module (`src/disk.native.ts`) that runs in TIDAL's main process.
+
+`fs` is not on TidaLuna's module whitelist, so the first filesystem check raises TidaLuna's one-time security prompt ("Allow plugin access to fs"). **Allow it** for the on-disk check; **block it** and TiDLoad falls back to its own records plus the client's own silent skip (the client refuses to overwrite an existing file either way). The prompt is remembered per module hash, which is why the native file is deliberately tiny and dependency free.
+
+Skipped entries are labelled in the list: **Already on disk** (filesystem found the file), **Downloaded earlier** (TiDLoad's record, used when fs access is unavailable), and *no data transferred* (a finished download that reported no bytes — the file was already there, or it landed between progress polls). Re-adding a collection re-queues only the tracks whose files are missing.
 
 ## Settings
 
@@ -57,9 +72,10 @@ This builds to `dist/` and serves it on `http://127.0.0.1:3000`. In TIDAL open *
 | Zero pad track numbers | `{trackNumber}` → `01`, `02`, … (disc numbers stay as-is). |
 | Context menu click | Queue and start, or queue only. |
 | Sidebar entry | Show the TiDLoad button in TIDAL's sidebar (applies immediately). |
+| Skip files that are already downloaded | Check records + the filesystem before downloading (see above). |
 | On client restart | Restore the queue paused, resume automatically, or discard it. |
 | Show toasts | In-app notifications (errors always show). |
-| History entries | How many completed downloads to remember (`0` keeps none). |
+| Finished entries kept | How many finished entries the (single) downloads list remembers across restarts. |
 
 Available template tags: `title`, `trackNumber`, `discNumber`, `bpm`, `year`, `date`, `copyright`, `REPLAYGAIN_TRACK_GAIN`, `REPLAYGAIN_TRACK_PEAK`, `comment`, `isrc`, `upc`, `musicbrainz_trackid`, `musicbrainz_albumid`, `artist`, `album`, `albumArtist`, `genres`, `organization`, `totalTracks`, `lyrics`.
 
@@ -71,7 +87,7 @@ These are properties of the client, not of TiDLoad:
 
 - **Downloads are serialised** by the client (`Semaphore(1)`), so TiDLoad downloads one track at a time and a "concurrent downloads" setting would do nothing.
 - **An in-flight download cannot be cancelled.** Pause takes effect after the current track.
-- **Plugins have no filesystem access** — no free-space checks, no deleting files, no overwrite prompt. `MediaItem.download()` also silently skips a track whose destination file already exists; TiDLoad detects this (no bytes transferred) and marks it **Already present**.
+- **Plugins have no direct filesystem access.** TiDLoad asks for it explicitly through one tiny native module (which triggers TidaLuna's security prompt); if that is denied, only TiDLoad's own records are used. There is still no free-space check, no deletion, and no overwrite — `MediaItem.download()` refuses to overwrite an existing file.
 - "Open folder" uses the client's `openExternal`, which is best-effort; if it fails the path is copied to the clipboard instead.
 - Files are named from the *FLAC tags* read at download time, which can differ slightly from the title shown in the queue (TidaLuna corrects titles using MusicBrainz).
 
@@ -90,22 +106,24 @@ pnpm run build      # one-off build into dist/
 ```
 plugins/TiDLoad/
   src/
-    index.tsx           plugin entry: styles, page, context menu, engine init
-    engine.ts           queue, download loop, progress, history, persistence
+    index.tsx           plugin entry: styles, page, context menu, sidebar, engine init
+    engine.ts           downloads list, download loop, progress, skip checks, persistence
     tidal.ts            Tidal client calls: metadata, collections, artist albums
-    contextMenu.ts      right-click integration
+    contextMenu.ts      right-click integration (tracks → album → artist)
     sidebar.ts          sidebar entry (cloned from TIDAL's own nav items)
+    disk.native.ts      main-process file checks (kept tiny so TidaLuna's fs approval survives edits)
     DownloadsPage.tsx   the manager UI
     SettingsPanel.tsx   settings UI (also rendered by Luna Settings)
-    settings.ts         settings store + persisted queue/history
+    settings.ts         settings + persisted list/records
     notify.ts           in-app toasts
     types.ts            shared types
     core/               pure, unit-tested logic (no Tidal/client imports)
       template.ts  queue.ts  artist.ts  format.ts  paths.ts  target.ts  store.ts  async.ts
+  test/luna-stubs.ts    stand-ins for the @luna/* API used by the tests
 types/luna.d.ts         ambient types for the TidaLuna plugin API
 ```
 
-`core/*` never imports `@luna/*` at runtime, which is what makes the queue, template and parser logic testable outside TIDAL.
+`core/*` never imports `@luna/*` at runtime, which is what makes the queue, template and parser logic testable outside TIDAL. `src/sidebar.test.ts` and `src/engine.test.ts` go further: vitest aliases `@luna/*` to `test/luna-stubs.ts` and mocks the native disk module, so the sidebar DOM injection and the whole download loop (paths, progress, skipping, failures, pausing) are covered without the client.
 
 ### Sidebar entry
 

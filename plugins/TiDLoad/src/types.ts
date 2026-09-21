@@ -10,6 +10,15 @@ export type AudioQuality = number;
 
 export type DownloadStatus = "pending" | "active" | "done" | "failed" | "skipped";
 
+/** Why a download was skipped, or why a finished download transferred nothing. */
+export type SkipReason =
+	/** TiDLoad already downloaded this track to this exact path in an earlier session. */
+	| "record"
+	/** The file was found on disk before downloading started. */
+	| "disk"
+	/** Status is "done" but no bytes were reported — the client found the file already there, or it finished between progress polls. */
+	| "unchanged";
+
 /** Tidal's content type for a queue entry — playlists can mix tracks and videos. */
 export type ContentType = "track" | "video";
 
@@ -57,18 +66,10 @@ export type QueueItem = TrackMeta & {
 	addedAt: number;
 	startedAt?: number;
 	finishedAt?: number;
-};
-
-export type HistoryEntry = {
-	trackId: number;
-	title: string;
-	artist: string;
-	album: string;
-	qualityName: string;
-	status: Extract<DownloadStatus, "done" | "failed" | "skipped">;
-	path?: string;
-	error?: string;
-	at: number;
+	/** Set when status is "skipped". */
+	skipReason?: SkipReason;
+	/** Size reported by the on-disk check, when TiDLoad skipped a file it found. */
+	existingSize?: number;
 };
 
 export type MenuAction = "start" | "queue";
@@ -85,8 +86,11 @@ export type Settings = {
 	menuAction: MenuAction;
 	/** Show a TiDLoad entry in TIDAL's left sidebar. */
 	sidebarEntry: boolean;
+	/** Skip a track when the destination file already exists (asks for filesystem access once). */
+	skipExisting: boolean;
 	restoreQueue: RestoreBehaviour;
 	toasts: boolean;
+	/** How many finished entries the (single) downloads list keeps. */
 	historyLimit: number;
 };
 

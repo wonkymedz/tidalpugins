@@ -26,6 +26,8 @@ export type StubTrack = {
 	error?: string;
 	/** Progress samples reported by `downloadProgress()` while downloading. */
 	progress?: { downloaded: number; total: number }[];
+	/** How long `download()` takes — long enough for the progress poller to observe samples. */
+	downloadDelayMs?: number;
 };
 
 /**
@@ -37,12 +39,15 @@ export const lunaStub = {
 	saveDialog: { canceled: false, filePath: "C:/TiDLoad/Track.flac" },
 	openDialog: { canceled: false, filePaths: ["C:/TiDLoad"] },
 	storage: new Map<string, unknown>(),
+	/** Called after a stub download finishes, so tests can pretend the file now exists. */
+	onDownload: undefined as ((path: string, trackId: number) => void) | undefined,
 	reset() {
 		this.tracks.clear();
 		this.downloads.length = 0;
 		this.saveDialog = { canceled: false, filePath: "C:/TiDLoad/Track.flac" };
 		this.openDialog = { canceled: false, filePaths: ["C:/TiDLoad"] };
 		this.storage.clear();
+		progressCursor.clear();
 	},
 };
 
@@ -210,6 +215,7 @@ export class MediaItem {
 		const samples = track?.progress ?? [];
 		const cursor = progressCursor.get(this.id) ?? 0;
 		if (track?.behaviour === "already") return undefined;
+		if (samples.length === 0) return undefined;
 		if (cursor >= samples.length) return samples[samples.length - 1];
 		progressCursor.set(this.id, cursor + 1);
 		return samples[cursor];
@@ -219,8 +225,9 @@ export class MediaItem {
 		lunaStub.downloads.push({ id: this.id, path, quality });
 		if (track?.behaviour === "fail") throw new Error(track.error ?? "download failed");
 		if (track?.behaviour === "already") return;
-		// Let the progress poller observe at least one sample.
-		await new Promise((resolve) => setTimeout(resolve, 5));
+		// Long enough for the engine's progress poller to see a sample (default 300ms).
+		await new Promise((resolve) => setTimeout(resolve, track?.downloadDelayMs ?? 300));
+		lunaStub.onDownload?.(Array.isArray(path) ? path.join("/") : path, this.id);
 	}
 }
 

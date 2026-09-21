@@ -7,13 +7,12 @@ import {
 	createQueueItem,
 	moveItem,
 	nextPending,
+	orderForDisplay,
 	patchItem,
-	pushHistory,
 	removeItem,
 	retryFailed,
 	stats,
-	toHistoryEntry,
-	toPersistedQueue,
+	toPersistedItems,
 } from "./queue";
 
 const meta = (trackId: number, title = `Track ${trackId}`): TrackMeta => ({
@@ -127,27 +126,44 @@ describe("stats / nextPending", () => {
 	});
 });
 
-describe("history", () => {
-	it("maps a queue item to a history entry", () => {
-		const entry = toHistoryEntry({ ...item(1, "done"), path: "C:/music/a.flac" }, 42);
-		expect(entry).toMatchObject({ trackId: 1, status: "done", path: "C:/music/a.flac", at: 42 });
-	});
-
-	it("maps a skipped item and truncates to the limit", () => {
-		expect(toHistoryEntry(item(1, "skipped")).status).toBe("skipped");
-		const history = pushHistory(pushHistory([], toHistoryEntry(item(1), 1), 2), toHistoryEntry(item(2), 2), 2);
-		expect(pushHistory(history, toHistoryEntry(item(3), 3), 2).map((entry) => entry.trackId)).toEqual([3, 2]);
+describe("orderForDisplay", () => {
+	it("puts the active item first, then the queue, then finished newest-first", () => {
+		const items = [
+			{ ...item(1, "done"), finishedAt: 100 },
+			item(2, "pending"),
+			{ ...item(3, "active") },
+			{ ...item(4, "failed"), finishedAt: 300 },
+			{ ...item(5, "done"), finishedAt: 200 },
+		];
+		expect(orderForDisplay(items).map((entry) => entry.trackId)).toEqual([3, 2, 4, 5, 1]);
 	});
 });
 
-describe("toPersistedQueue", () => {
-	it("keeps unfinished items as pending without progress counters", () => {
-		const persisted = toPersistedQueue([
-			{ ...item(1, "active"), downloaded: 900, total: 1000, speed: 2048, startedAt: 5 },
-			item(2, "done"),
-		]);
-		expect(persisted).toHaveLength(1);
+describe("toPersistedItems", () => {
+	it("keeps unfinished items as pending and remembers finished ones as history", () => {
+		const persisted = toPersistedItems(
+			[
+				{ ...item(1, "active"), downloaded: 900, total: 1000, speed: 2048, startedAt: 5 },
+				{ ...item(2, "done"), path: "C:/b.flac", finishedAt: 50, downloaded: 10, total: 10 },
+				{ ...item(3, "failed"), error: "boom", finishedAt: 60 },
+			],
+			10,
+		);
+
+		expect(persisted).toHaveLength(3);
 		expect(persisted[0]).toMatchObject({ trackId: 1, status: "pending", downloaded: 0, total: 0, speed: 0 });
 		expect(persisted[0].startedAt).toBeUndefined();
+		expect(persisted.find((entry) => entry.trackId === 2)).toMatchObject({ status: "done", path: "C:/b.flac", finishedAt: 50 });
+		expect(persisted.find((entry) => entry.trackId === 3)).toMatchObject({ status: "failed", error: "boom" });
+	});
+
+	it("caps finished entries at the limit", () => {
+		const items = [1, 2, 3, 4].map((id) => ({ ...item(id, "done"), finishedAt: id }));
+		expect(toPersistedItems(items, 2).map((entry) => entry.trackId)).toEqual([4, 3]);
+	});
+
+	it("keeps unfinished items even when the finished limit is zero", () => {
+		const persisted = toPersistedItems([item(1, "pending"), { ...item(2, "done"), finishedAt: 1 }], 0);
+		expect(persisted.map((entry) => entry.trackId)).toEqual([1]);
 	});
 });

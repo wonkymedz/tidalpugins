@@ -22,24 +22,23 @@ import {
 	moveItem as moveQueueItem,
 	nextPending,
 	patchItem,
-	pushHistory,
 	removeItem as removeQueueItem,
 	retryFailed as retryFailedItems,
 	stats,
-	toHistoryEntry,
 } from "./core/queue";
 import { createObservable } from "./core/store";
 import { parseTidalTarget } from "./core/target";
 import { renderSegments } from "./core/template";
+import { statPaths, type DiskEntry } from "./disk.native";
 import { toast, removeToasts } from "./notify";
 import {
-	clearPersistedHistory,
-	clearPersistedQueue,
-	loadPersistedHistory,
-	loadPersistedQueue,
-	persistHistory,
-	persistQueue,
+	clearPersistedItems,
+	loadDownloadedRecords,
+	loadPersistedItems,
+	persistDownloadedRecords,
+	persistItems,
 	settings,
+	type DownloadedRecord,
 } from "./settings";
 import {
 	artistName,
@@ -49,10 +48,9 @@ import {
 	resolveTrackMeta,
 	trackRefsForAlbum,
 } from "./tidal";
-import type { ContentType, HistoryEntry, QueueItem, QueueState, TrackMeta, TrackRef } from "./types";
+import type { ContentType, QueueItem, QueueState, SkipReason, TrackMeta, TrackRef } from "./types";
 
 export type EngineState = QueueState & {
-	history: HistoryEntry[];
 	initialised: boolean;
 };
 
@@ -70,11 +68,11 @@ export type EngineDependencies = {
 	openPage: () => void;
 };
 
-const POLL_INTERVAL_MS = 250;
+const POLL_INTERVAL_MS = 200;
 const METADATA_CONCURRENCY = 6;
 const PERSIST_DEBOUNCE_MS = 500;
 
-const state = createObservable<EngineState>({ items: [], running: false, history: [], initialised: false });
+const state = createObservable<EngineState>({ items: [], running: false, initialised: false });
 
 export const engine = state;
 
@@ -99,14 +97,14 @@ const persistNow = (): void => {
 		clearTimeout(persistTimer);
 		persistTimer = undefined;
 	}
-	void persistQueue(state.get().items);
+	void persistItems(state.get().items, settings.historyLimit);
 };
 
 const schedulePersist = (): void => {
 	if (persistTimer !== undefined) return;
 	persistTimer = setTimeout(() => {
 		persistTimer = undefined;
-		void persistQueue(state.get().items);
+		void persistItems(state.get().items, settings.historyLimit);
 	}, PERSIST_DEBOUNCE_MS);
 };
 
@@ -121,34 +119,33 @@ const getMediaItem = async (trackId: number, type: ContentType = "track"): Promi
 	return mediaItem;
 };
 
-const recordHistory = (entry: HistoryEntry): void => {
-	const history = pushHistory(state.get().history, entry, settings.historyLimit);
-	state.update({ history });
-	void persistHistory(history);
-};
-
 // #region init / shutdown
 
 export const init = async (deps: EngineDependencies): Promise<void> => {
 	dependencies = deps;
 	deps.unloads.add(shutdown);
 
-	const [persistedQueue, history] = await Promise.all([loadPersistedQueue(), loadPersistedHistory()]);
-	state.update({ history, initialised: true });
+	const persisted = await loadPersistedItems();
+	state.update({ items: persisted, initialised: true });
+
+	downloaded.clear();
+	for (const [trackId, record] of await loadDownloadedRecords()) downloaded.set(trackId, record);
+	const unfinished = persisted.filter((item) => item.status === "pending" || item.status === "active");
 
 	if (settings.restoreQueue === "discard") {
-		await clearPersistedQueue();
+		const finished = persisted.filter((item) => item.status !== "pending" && item.status !== "active");
+		state.update({ items: finished });
+		persistNow();
 		return;
 	}
-	if (persistedQueue.length === 0) return;
+	if (unfinished.length === 0) return;
 
-	state.update({ items: persistedQueue });
 	if (settings.restoreQueue === "auto") {
-		trace()?.msg.log(`TiDLoad: resuming ${persistedQueue.length} queued tracks from the last session`);
+		trace()?.msg.log(`TiDLoad: resuming ${unfinished.length} queued tracks from the last session`);
 		start();
 	} else {
-		trace()?.msg.log(`TiDLoad: restored ${persistedQueue.length} queued tracks (paused)`);
-		toast(`TiDLoad restored ${persistedQueue.length} queued ${persistedQueue.length === 1 ? "track" : "tracks"}`, {
+		trace()?.msg.log(`TiDLoad: restored ${unfinished.length} queued tracks (paused)`);
+		toast(`TiDLoad restored ${unfinished.length} queued ${unfinished.length === 1 ? "track" : "tracks"}`, {
 			kind: "info",
 			actionLabel: "Resume",
 			onAction: () => start(),
@@ -162,6 +159,103 @@ export const shutdown = (): void => {
 	removeToasts();
 	mediaItemCache.clear();
 	batchDestinations.clear();
+};
+
+// #endregion
+
+// #region on-disk checks
+
+/** files TiDLoad has written before, remembered across sessions and independent of the list */
+const downloaded = new Map<number, DownloadedRecord>();
+let diskCheckBlocked = false;
+let diskCheckWarned = false;
+
+const rememberDownloaded = (item: QueueItem, size?: number): void => {
+	if (item.path === undefined) return;
+	downloaded.set(item.trackId, { path: item.path, at: Date.now(), size });
+	void persistDownloadedRecords(downloaded);
+};
+
+export const forgetDownloaded = async (): Promise<void> => {
+	downloaded.clear();
+	await persistDownloadedRecords(downloaded);
+};
+
+export const downloadedCount = (): number => downloaded.size;
+
+const diskHas = async (path: string): Promise<DiskEntry | undefined> => {
+	if (diskCheckBlocked) return undefined;
+	try {
+		const [entry] = await statPaths([path]);
+		return entry;
+	} catch (err) {
+		// The user blocked filesystem access in TidaLuna's security prompt — stop asking.
+		diskCheckBlocked = true;
+		trace()?.msg.warn.withContext("TiDLoad: filesystem access blocked, skipping on-disk checks")(err);
+		if (!diskCheckWarned) {
+			diskCheckWarned = true;
+			toast(
+				"TiDLoad: filesystem access was blocked, so new downloads can't be checked against the disk. TiDLoad's own download records are still used.",
+				{ kind: "error", timeout: 12000 },
+			);
+		}
+		return undefined;
+	}
+};
+
+/**
+ * Decides whether a track is already downloaded:
+ *  1. The filesystem is asked first and is authoritative when TiDLoad has permission.
+ *  2. If access is blocked, TiDLoad falls back to its own record of having written this exact path.
+ */
+const findExisting = async (item: QueueItem, path: string): Promise<{ reason: SkipReason; size?: number } | undefined> => {
+	if (!settings.skipExisting) return undefined;
+
+	const record = downloaded.get(item.trackId);
+	const recorded = record?.path === path ? record : undefined;
+
+	const entry = await diskHas(path);
+	if (entry !== undefined) {
+		if (!entry.exists) return undefined;
+		return { reason: recorded !== undefined ? "record" : "disk", size: entry.size };
+	}
+
+	if (recorded !== undefined) return { reason: "record", size: recorded.size };
+	return undefined;
+};
+
+/**
+ * Of the incoming tracks, which ones TiDLoad has already finished but whose file is no longer on disk?
+ * Those get re-queued, so re-adding an album downloads only what is missing. One batched disk call.
+ *
+ * If filesystem access is blocked (or the check is off) this returns nothing and finished entries stay
+ * duplicates — the safe default, since the client itself will not overwrite an existing file.
+ */
+const findMissingTracks = async (incoming: QueueItem[]): Promise<Set<number>> => {
+	const missing = new Set<number>();
+	if (!settings.skipExisting || diskCheckBlocked) return missing;
+
+	const existingByTrack = new Map(state.get().items.map((item) => [item.trackId, item]));
+	const candidates: { trackId: number; path: string }[] = [];
+	for (const item of incoming) {
+		const existing = existingByTrack.get(item.trackId);
+		if (existing === undefined || existing.path === undefined) continue;
+		if (existing.status !== "done" && existing.status !== "skipped") continue;
+		candidates.push({ trackId: item.trackId, path: existing.path });
+	}
+	if (candidates.length === 0) return missing;
+
+	try {
+		const entries = await statPaths(candidates.map((candidate) => candidate.path));
+		const gone = new Set(entries.filter((entry) => !entry.exists).map((entry) => entry.path));
+		for (const candidate of candidates) {
+			if (gone.has(candidate.path)) missing.add(candidate.trackId);
+		}
+	} catch (err) {
+		diskCheckBlocked = true;
+		trace()?.msg.warn.withContext("TiDLoad: could not check for missing files")(err);
+	}
+	return missing;
 };
 
 // #endregion
@@ -192,13 +286,23 @@ const enqueueTracks = async (refs: TrackRef[], source: string, options: EnqueueO
 		.filter((meta): meta is TrackMeta => meta !== undefined)
 		.map((meta) => createQueueItem(meta, source, batch, batchSize));
 
-	const result = addItems(state.get().items, incoming, { requeueFinished: options.requeueFinished });
+	// Re-adding something already downloaded: re-queue only the entries whose file is gone.
+	const requeueTracks = await findMissingTracks(incoming);
+
+	const result = addItems(state.get().items, incoming, { requeueFinished: options.requeueFinished, requeueTracks });
 	state.update({ items: result.items });
 	if (result.added > 0 || result.requeued > 0) schedulePersist();
 
 	const addedTotal = result.added + result.requeued;
 	if (addedTotal === 0 && result.duplicates > 0) {
-		toast(`${result.duplicates} ${result.duplicates === 1 ? "track is" : "tracks are"} already in TiDLoad`, { kind: "info" });
+		toast(`${result.duplicates} ${result.duplicates === 1 ? "track is" : "tracks are"} already downloaded — nothing to do`, {
+			kind: "info",
+		});
+	} else if (result.duplicates > 0) {
+		toast(
+			`TiDLoad: ${addedTotal} queued, ${result.duplicates} already downloaded${result.requeued > 0 ? `, ${result.requeued} missing from disk` : ""}`,
+			{ kind: "info" },
+		);
 	}
 
 	if (options.start ?? settings.menuAction === "start") start();
@@ -443,41 +547,65 @@ const processItem = async (item: QueueItem): Promise<void> => {
 
 		const destination = await resolveDestination(item, segments, ext);
 		if (destination === undefined) {
-			const error = "No destination chosen";
-			updateItems((items) => patchItem(items, item.trackId, { status: "failed", error, finishedAt: Date.now() }));
-			recordHistory(toHistoryEntry({ ...item, status: "failed", error }));
+			updateItems((items) =>
+				patchItem(items, item.trackId, { status: "failed", error: "No destination chosen", finishedAt: Date.now() }),
+			);
 			trace()?.msg.warn("TiDLoad: destination dialog cancelled, pausing queue");
 			pause();
 			return;
 		}
 
-		updateItems((items) => patchItem(items, item.trackId, { path: destination.displayPath }));
+		const fullPath = destination.displayPath;
+		updateItems((items) => patchItem(items, item.trackId, { path: fullPath }));
+
+		// Already downloaded? Skip without touching the network.
+		const existing = await findExisting(item, fullPath);
+		if (existing !== undefined) {
+			updateItems((items) =>
+				patchItem(items, item.trackId, {
+					status: "skipped",
+					skipReason: existing.reason,
+					existingSize: existing.size,
+					finishedAt: Date.now(),
+					speed: 0,
+					path: fullPath,
+				}),
+			);
+			rememberDownloaded({ ...item, path: fullPath }, existing.size);
+			trace()?.msg.log(
+				`TiDLoad: skipped (${existing.reason === "record" ? "downloaded earlier" : "already on disk"}): ${item.artist} — ${item.title}`,
+			);
+			return;
+		}
 
 		poller = startProgressPolling(item.trackId, target);
-		let alreadyPresent = false;
+		let sawBytes = true;
 		try {
 			await target.download(destination.target, quality);
-			alreadyPresent = !poller.sawBytes();
+			sawBytes = poller.sawBytes();
 		} finally {
 			poller.stop();
 		}
 
-		const status = alreadyPresent ? "skipped" : "done";
+		// The download resolved, so the file is on disk either way. When no bytes were reported the client
+		// found the file already there (or it finished between polls) — worth noting, but it is not a skip.
 		updateItems((items) =>
 			patchItem(items, item.trackId, {
-				status,
+				status: "done",
+				skipReason: sawBytes ? undefined : "unchanged",
 				finishedAt: Date.now(),
 				speed: 0,
-				path: destination.displayPath,
+				path: fullPath,
 			}),
 		);
-		recordHistory(toHistoryEntry({ ...item, status, path: destination.displayPath }));
-		trace()?.msg.log(`TiDLoad: ${status === "done" ? "downloaded" : "already present"}: ${item.artist} — ${item.title}`);
+		rememberDownloaded({ ...item, path: fullPath });
+		trace()?.msg.log(
+			`TiDLoad: ${sawBytes ? "downloaded" : "already present"}: ${item.artist} — ${item.title}`,
+		);
 	} catch (err) {
 		poller?.stop();
 		const message = err instanceof Error ? err.message : String(err);
 		updateItems((items) => patchItem(items, item.trackId, { status: "failed", error: message, finishedAt: Date.now(), speed: 0 }));
-		recordHistory(toHistoryEntry({ ...item, status: "failed", error: message }));
 		trace()?.msg.err.withContext(`TiDLoad: failed to download ${item.artist} — ${item.title}`)(err);
 	}
 };
@@ -557,16 +685,22 @@ export const clearQueue = async (): Promise<void> => {
 	pause();
 	state.update({ items: [] });
 	batchDestinations.clear();
-	await clearPersistedQueue();
+	await clearPersistedItems();
 };
 
-export const clearHistory = async (): Promise<void> => {
-	state.update({ history: [] });
-	await clearPersistedHistory();
-};
-
-export const downloadAgain = async (entry: HistoryEntry): Promise<void> => {
-	await enqueueTracks([{ id: entry.trackId }], "History", { requeueFinished: true, start: true });
+/**
+ * Re-queues a finished track.
+ *
+ * The "downloaded earlier" record is forgotten by re-queueing (a pending item is not a record), but the
+ * on-disk check still runs — which is the honest behaviour, because the client itself refuses to
+ * overwrite an existing file. If the file was deleted, this downloads it again.
+ */
+export const downloadAgain = async (trackId: number): Promise<void> => {
+	const type = state.get().items.find((entry) => entry.trackId === trackId)?.type;
+	// Forget the "already downloaded" record so the skip check does not immediately skip it again.
+	if (downloaded.delete(trackId)) void persistDownloadedRecords(downloaded);
+	updateItems((items) => patchItem(items, trackId, { path: undefined, skipReason: undefined, existingSize: undefined }));
+	await enqueueTracks([{ id: trackId, type }], "Re-download", { requeueFinished: true, start: true });
 };
 
 // #endregion
