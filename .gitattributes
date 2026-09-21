@@ -1,0 +1,6 @@
+# Normalise line endings so the repo stays LF regardless of the developer's OS.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
