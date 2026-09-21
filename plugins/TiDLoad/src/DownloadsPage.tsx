@@ -45,6 +45,22 @@ const STATUS_LABEL: Record<QueueItem["status"], string> = {
 	skipped: "Skipped",
 };
 
+/** Conversion state overrides the download chip while it is running, or annotates it afterwards. */
+const conversionChip = (item: QueueItem): string | undefined => {
+	const conversion = item.conversion;
+	if (conversion === undefined) return undefined;
+	switch (conversion.status) {
+		case "queued":
+			return `Converting to ${conversion.format.toUpperCase()}…`;
+		case "running":
+			return `Converting${conversion.percent !== undefined ? ` ${Math.round(conversion.percent)}%` : "…"}`;
+		case "failed":
+			return "Not converted";
+		default:
+			return undefined;
+	}
+};
+
 const SKIP_LABEL: Record<NonNullable<QueueItem["skipReason"]>, string> = {
 	record: "Downloaded earlier",
 	disk: "Already on disk",
@@ -175,6 +191,8 @@ const QueueRow = React.memo(
 	}) => {
 		const finished = item.status === "done" || item.status === "skipped";
 		const skipNote = item.skipReason !== undefined ? SKIP_LABEL[item.skipReason] : "Skipped";
+		const conversion = item.conversion;
+		const converting = conversion !== undefined && (conversion.status === "queued" || conversion.status === "running");
 
 		return (
 			<div className={`tidload-row tidload-row--${item.status}`}>
@@ -196,21 +214,35 @@ const QueueRow = React.memo(
 					</div>
 					{item.status === "active" && <ProgressBar item={item} />}
 					{item.status === "active" && <div className="tidload-row__path">{progressText(item)}</div>}
+					{converting && (
+						<div className="tidload-bar">
+							<div
+								className={`tidload-bar__fill${conversion!.percent === undefined ? " tidload-bar__fill--indeterminate" : ""}`}
+								style={{ width: conversion!.percent === undefined ? "100%" : `${conversion!.percent}%` }}
+							/>
+						</div>
+					)}
 					{item.status === "failed" && item.error !== undefined && <div className="tidload-row__error">{item.error}</div>}
-					{finished && (
+					{conversion?.status === "failed" && conversion.error !== undefined && (
+						<div className="tidload-row__error">{conversion.error}</div>
+					)}
+					{finished && !converting && (
 						<div className="tidload-row__path" title={item.path ?? ""}>
 							{item.skipReason === "record" || item.skipReason === "disk"
 								? `${skipNote}${item.existingSize !== undefined ? ` (${formatBytes(item.existingSize)})` : ""}`
 								: item.path !== undefined
-									? `${fileName(item.path)}${item.skipReason === "unchanged" ? " • no data transferred" : ""}`
+									? `${fileName(item.path)}${item.skipReason === "unchanged" ? " • no data transferred" : ""}${
+											conversion?.status === "done" ? " • converted" : ""
+										}`
 									: skipNote}
 						</div>
 					)}
 				</div>
 				<div className={`tidload-chip tidload-chip--${item.status}`}>
-					{item.status === "skipped" && item.skipReason !== undefined && item.skipReason !== "unchanged"
-						? SKIP_LABEL[item.skipReason]
-						: STATUS_LABEL[item.status]}
+					{conversionChip(item) ??
+						(item.status === "skipped" && item.skipReason !== undefined && item.skipReason !== "unchanged"
+							? SKIP_LABEL[item.skipReason]
+							: STATUS_LABEL[item.status])}
 				</div>
 				<div className="tidload-row__actions">
 					{item.status === "pending" && (

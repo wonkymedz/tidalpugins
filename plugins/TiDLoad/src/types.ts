@@ -7,7 +7,19 @@
 
 /** A TIDAL audio quality value — a string like "HIGH", never a number. See core/quality.ts. */
 import type { AudioQuality } from "./core/quality";
-export type { AudioQuality };
+import type { ConversionFormat, OutputFormat } from "./core/convert";
+export type { AudioQuality, ConversionFormat };
+
+/** Local ffmpeg conversion of a finished lossless download. */
+export type ConversionState = {
+	format: ConversionFormat;
+	status: "queued" | "running" | "done" | "failed";
+	/** 0-100 while running, when the source duration is known. */
+	percent?: number;
+	/** Where the converted file is being written. */
+	target?: string;
+	error?: string;
+};
 
 export type DownloadStatus = "pending" | "active" | "done" | "failed" | "skipped";
 
@@ -77,6 +89,8 @@ export type QueueItem = TrackMeta & {
 	skipReason?: SkipReason;
 	/** Size reported by the on-disk check, when TiDLoad skipped a file it found. */
 	existingSize?: number;
+	/** Local conversion state, when an output format other than "original" is selected. */
+	conversion?: ConversionState;
 };
 
 export type MenuAction = "start" | "queue";
@@ -99,6 +113,10 @@ export type Settings = {
 	nowPlayingButton: boolean;
 	/** ffmpeg executable the user picked (or TiDLoad installed) — used for local conversion. */
 	ffmpegPath?: string;
+	/** What TiDLoad should leave on disk: the download as-is, or a locally converted file. */
+	outputFormat: OutputFormat;
+	/** Keep the downloaded lossless file after a successful conversion. */
+	keepLosslessSource: boolean;
 	/** Skip a track when the destination file already exists (asks for filesystem access once). */
 	skipExisting: boolean;
 	restoreQueue: RestoreBehaviour;

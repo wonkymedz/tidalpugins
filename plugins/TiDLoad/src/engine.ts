@@ -16,6 +16,15 @@ import { showOpenDialog, showSaveDialog } from "@luna/lib.native";
 
 import { mapWithConcurrency } from "./core/async";
 import {
+	LOSSY_FALLBACK_ORDER,
+	conversionFor,
+	losslessSourceOrder,
+	normaliseOutputFormat,
+	outputExtension,
+	replaceExtension,
+} from "./core/convert";
+import { fileName } from "./core/paths";
+import {
 	addItems,
 	clearCompleted as clearCompletedItems,
 	createQueueItem,
@@ -36,6 +45,13 @@ import {
 	qualityLabel,
 	type AudioQuality,
 } from "./core/quality";
+import {
+	cancelActiveConversion,
+	cancelQueuedConversions,
+	conversionsIdle,
+	enqueueConversion,
+	initConversionWorker,
+} from "./convert";
 import { statPaths, type DiskEntry } from "./disk.native";
 import { toast, removeToasts } from "./notify";
 import {
@@ -132,8 +148,39 @@ export const init = async (deps: EngineDependencies): Promise<void> => {
 	dependencies = deps;
 	deps.unloads.add(shutdown);
 
+	initConversionWorker({
+		update: (trackId, update) => {
+			const existing = state.get().items.find((item) => item.trackId === trackId)?.conversion;
+			updateItems((items) => patchItem(items, trackId, { conversion: { format: existing?.format ?? "m4a", ...update } }));
+			schedulePersist();
+		},
+	});
+
 	const persisted = await loadPersistedItems();
 	state.update({ items: persisted, initialised: true });
+
+	// A conversion cannot survive a reload: the ffmpeg process died with the previous session. Say so
+	// instead of leaving an entry that looks like it is still working — the lossless file is still there.
+	const interrupted = persisted.filter(
+		(item) => item.conversion !== undefined && (item.conversion.status === "queued" || item.conversion.status === "running"),
+	);
+	if (interrupted.length > 0) {
+		state.update({
+			items: state.get().items.map((item) =>
+				interrupted.some((other) => other.trackId === item.trackId)
+					? {
+							...item,
+							conversion: {
+								...item.conversion!,
+								status: "failed" as const,
+								error: "conversion was interrupted — the lossless file was kept",
+							},
+						}
+					: item,
+			),
+		});
+		persistNow();
+	}
 
 	downloaded.clear();
 	for (const [trackId, record] of await loadDownloadedRecords()) downloaded.set(trackId, record);
@@ -166,6 +213,9 @@ export const shutdown = (): void => {
 	removeToasts();
 	mediaItemCache.clear();
 	batchDestinations.clear();
+	// Conversions cannot outlive the plugin: drop what is queued and stop the running ffmpeg.
+	cancelQueuedConversions();
+	void cancelActiveConversion();
 };
 
 // #endregion
@@ -476,7 +526,14 @@ const runLoop = async (): Promise<void> => {
 			if (state.get().running) state.update({ running: false });
 			persistNow();
 			// Only announce a result when the queue actually drained — a manual pause should stay quiet.
-			if (nextPending(state.get().items) === undefined) reportSummary();
+			// Conversions run alongside the downloads, so wait for them before summarising.
+			if (nextPending(state.get().items) === undefined) {
+				void (async () => {
+					await conversionsIdle();
+					persistNow();
+					reportSummary();
+				})();
+			}
 		}
 	})();
 
@@ -484,14 +541,20 @@ const runLoop = async (): Promise<void> => {
 };
 
 const reportSummary = (): void => {
-	const summary = stats(state.get().items);
+	const items = state.get().items;
+	const summary = stats(items);
 	if (summary.done + summary.skipped + summary.failed === 0) return;
+
+	const converted = items.filter((item) => item.conversion?.status === "done").length;
+	const conversionsFailed = items.filter((item) => item.conversion?.status === "failed").length;
 
 	const parts = [`${summary.done} downloaded`];
 	if (summary.skipped > 0) parts.push(`${summary.skipped} already present`);
+	if (converted > 0) parts.push(`${converted} converted`);
+	if (conversionsFailed > 0) parts.push(`${conversionsFailed} not converted`);
 	if (summary.failed > 0) parts.push(`${summary.failed} failed`);
 	toast(`TiDLoad: ${parts.join(", ")}`, {
-		kind: summary.failed > 0 ? "error" : "success",
+		kind: summary.failed > 0 || conversionsFailed > 0 ? "error" : "success",
 		actionLabel: "Open",
 		onAction: () => dependencies?.openPage(),
 	});
@@ -563,48 +626,55 @@ const processItem = async (item: QueueItem): Promise<void> => {
 		let target = mediaItem;
 		if (settings.useRealMAX) target = (await mediaItem.max()) ?? mediaItem;
 
+		const format = normaliseOutputFormat(settings.outputFormat);
+		const conversion = conversionFor(format);
 		const requested = normaliseAudioQuality(settings.downloadQuality, DEFAULT_AUDIO_QUALITY);
 		const { tags } = await target.flacTags();
 
 		/**
-		 * Ask for the chosen quality, falling back once to the client's default.
+		 * Pick the stream quality.
 		 *
-		 * TIDAL answers 404 for a quality a track has no stream for, which the client reports as
-		 * "Track <id> is not available" — indistinguishable from a missing track. Falling back keeps the
-		 * download working, and the note below records what actually happened.
+		 * Without a conversion: the chosen quality, falling back once to the client default.
+		 *
+		 * With a conversion: a *lossless* stream is the point (TIDAL's lossy tiers are segmented and slow),
+		 * so the lossless tiers are tried first. Lossy tiers are only a last resort — and then the
+		 * conversion is skipped rather than re-encoding already-lossy audio.
 		 */
-		let quality: AudioQuality = requested;
+		const candidates: AudioQuality[] =
+			conversion !== undefined
+				? [...losslessSourceOrder(requested), ...LOSSY_FALLBACK_ORDER]
+				: [requested, DEFAULT_AUDIO_QUALITY];
+
+		let quality: AudioQuality = candidates[0];
 		let ext: string | undefined;
 		let playbackError: unknown;
-		try {
-			ext = await target.fileExtension(quality);
-		} catch (err) {
-			playbackError = err;
-		}
-
-		if (ext === undefined && quality !== DEFAULT_AUDIO_QUALITY) {
-			quality = DEFAULT_AUDIO_QUALITY;
+		for (const candidate of candidates) {
+			quality = candidate;
 			try {
-				ext = await target.fileExtension(quality);
+				ext = await target.fileExtension(candidate);
 				playbackError = undefined;
-				trace()?.msg.warn(
-					`TiDLoad: "${item.title}" has no ${qualityLabel(requested)} stream, using ${qualityLabel(quality)} instead`,
-				);
+				break;
 			} catch (err) {
 				playbackError = err;
+				ext = undefined;
+				trace()?.msg.warn(`TiDLoad: "${item.title}" has no ${qualityLabel(candidate)} stream`);
 			}
 		}
 
 		if (ext === undefined && playbackError !== undefined) {
+			// Every candidate failed: report the quality the user actually asked for.
 			throw new Error(`No stream available for "${item.title}" at ${qualityLabel(requested)}`);
 		}
-		// Unknown manifest type: keep the old behaviour rather than failing the track.
 		ext ??= "flac";
 
-		const usedFallbackQuality = quality !== requested;
-		const segments = renderSegments(settings.pathFormat, tags, { ext, padTrackNumbers: settings.padTrackNumbers });
+		const sourceIsLossless = ext === "flac";
+		const wantConversion = conversion !== undefined && sourceIsLossless;
+		const finalExt = wantConversion && conversion !== undefined ? outputExtension(conversion) : ext;
 
-		const destination = await resolveDestination(item, segments, ext);
+		const usedFallbackQuality = quality !== requested;
+		const segments = renderSegments(settings.pathFormat, tags, { ext: finalExt, padTrackNumbers: settings.padTrackNumbers });
+
+		const destination = await resolveDestination(item, segments, finalExt);
 		if (destination === undefined) {
 			updateItems((items) =>
 				patchItem(items, item.trackId, { status: "failed", error: "No destination chosen", finishedAt: Date.now() }),
@@ -614,11 +684,17 @@ const processItem = async (item: QueueItem): Promise<void> => {
 			return;
 		}
 
-		const fullPath = destination.displayPath;
-		updateItems((items) => patchItem(items, item.trackId, { path: fullPath }));
+		const finalPath = destination.displayPath;
+		// The lossless source is written beside the final file, then converted (and optionally removed).
+		const sourcePath = wantConversion ? replaceExtension(finalPath, ext) : finalPath;
+		const downloadTarget: string | string[] = Array.isArray(destination.target)
+			? [...destination.target.slice(0, -1), fileName(sourcePath)]
+			: sourcePath;
+
+		updateItems((items) => patchItem(items, item.trackId, { path: finalPath }));
 
 		// Already downloaded? Skip without touching the network.
-		const existing = await findExisting(item, fullPath);
+		const existing = await findExisting(item, finalPath);
 		if (existing !== undefined) {
 			updateItems((items) =>
 				patchItem(items, item.trackId, {
@@ -628,10 +704,10 @@ const processItem = async (item: QueueItem): Promise<void> => {
 					qualityName: qualityLabel(quality),
 					finishedAt: Date.now(),
 					speed: 0,
-					path: fullPath,
+					path: finalPath,
 				}),
 			);
-			rememberDownloaded({ ...item, path: fullPath }, existing.size);
+			rememberDownloaded({ ...item, path: finalPath }, existing.size);
 			trace()?.msg.log(
 				`TiDLoad: skipped (${existing.reason === "record" ? "downloaded earlier" : "already on disk"}): ${item.artist} — ${item.title}`,
 			);
@@ -641,7 +717,7 @@ const processItem = async (item: QueueItem): Promise<void> => {
 		poller = startProgressPolling(item.trackId, target);
 		let sawBytes = true;
 		try {
-			await target.download(destination.target, quality);
+			await target.download(downloadTarget, quality);
 			sawBytes = poller.sawBytes();
 		} finally {
 			poller.stop();
@@ -650,23 +726,57 @@ const processItem = async (item: QueueItem): Promise<void> => {
 		// The download resolved, so the file is on disk either way. When no bytes were reported the client
 		// found the file already there (or it finished between polls) — worth noting, but it is not a skip.
 		// qualityName records the quality actually used (it differs from the track's own when we fell back).
-		updateItems((items) =>
-			patchItem(items, item.trackId, {
-				status: "done",
-				skipReason: sawBytes ? undefined : "unchanged",
-				qualityName: qualityLabel(quality),
-				segmented: undefined,
-				finishedAt: Date.now(),
-				speed: 0,
-				path: fullPath,
-			}),
-		);
-		rememberDownloaded({ ...item, path: fullPath });
-		trace()?.msg.log(
-			`TiDLoad: ${sawBytes ? "downloaded" : "already present"} at ${qualityLabel(quality)}${
-				usedFallbackQuality ? ` (requested ${qualityLabel(requested)})` : ""
-			}: ${item.artist} — ${item.title}`,
-		);
+		const downloadedPatch = {
+			status: "done" as const,
+			skipReason: sawBytes ? undefined : ("unchanged" as const),
+			qualityName: qualityLabel(quality),
+			segmented: undefined,
+			finishedAt: Date.now(),
+			speed: 0,
+			path: finalPath,
+		};
+
+		if (wantConversion && conversion !== undefined) {
+			updateItems((items) =>
+				patchItem(items, item.trackId, {
+					...downloadedPatch,
+					conversion: { format: conversion, status: "queued", target: finalPath },
+				}),
+			);
+			rememberDownloaded({ ...item, path: finalPath });
+			trace()?.msg.log(
+				`TiDLoad: downloaded lossless at ${qualityLabel(quality)} → converting to ${conversion.toUpperCase()}: ${item.artist} — ${item.title}`,
+			);
+			enqueueConversion({
+				trackId: item.trackId,
+				source: sourcePath,
+				target: finalPath,
+				format: conversion,
+				durationSeconds: item.duration,
+			});
+		} else {
+			updateItems((items) =>
+				patchItem(items, item.trackId, {
+					...downloadedPatch,
+					// A conversion was asked for but TIDAL has no lossless stream for this track: keep what
+					// was downloaded and say so rather than re-encoding lossy audio.
+					conversion:
+						conversion !== undefined
+							? {
+									format: conversion,
+									status: "failed" as const,
+									error: "TIDAL has no lossless stream for this track — the downloaded file was kept",
+								}
+							: undefined,
+				}),
+			);
+			rememberDownloaded({ ...item, path: finalPath });
+			trace()?.msg.log(
+				`TiDLoad: ${sawBytes ? "downloaded" : "already present"} at ${qualityLabel(quality)}${
+					usedFallbackQuality ? ` (requested ${qualityLabel(requested)})` : ""
+				}: ${item.artist} — ${item.title}`,
+			);
+		}
 	} catch (err) {
 		poller?.stop();
 		const message = err instanceof Error ? err.message : String(err);

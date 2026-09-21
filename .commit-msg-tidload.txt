@@ -1,0 +1,33 @@
+Local conversion: download lossless, convert with ffmpeg (v1.1.0)
+
+TIDAL serves low/high quality as segmented DASH, which the client fetches one
+request at a time and then remuxes — often slower than pulling the whole FLAC in
+a single stream. TiDLoad now offers to download LOSSLESS and convert locally
+instead, which is both faster and better quality than the segmented AAC.
+
+- Output format setting: Original (unchanged) / M4A - AAC 320 / MP3 - 320 / WAV.
+  Converted formats request HI_RES_LOSSLESS (falling back to LOSSLESS), write the
+  FLAC beside the target, and convert with ffmpeg:
+    m4a: -c:a aac -b:a 320k -map 0:v? -c:v copy -disposition:v attached_pic -movflags +faststart
+    mp3: -c:a libmp3lame -b:a 320k -id3v2_version 3 (+ attached cover)
+    wav: -c:a pcm_s16le
+- Conversion runs alongside the download loop (one ffmpeg at a time), progress is
+  parsed from ffmpeg's -progress pipe:1 output, and the FLAC is deleted only after
+  a *successful* conversion unless "keep the lossless source" is on.
+- A track TIDAL only has in lossy form is kept as downloaded and marked not
+  converted rather than re-encoded; an interrupted conversion (client closed) is
+  reported as interrupted on the next load with the lossless file intact.
+- ffmpeg: auto-detected (TiDLoad's folder, winget Links, chocolatey, Program
+  Files, PATH), selectable via "Locate ffmpeg...", or installed in-app from a
+  pinned GyanD/codexffmpeg 9.0.2 essentials build with its SHA-256 verified
+  before extraction. ffmpeg.native.ts stays dependency-free on purpose so edits
+  to other files never invalidate TidaLuna's fs/child_process approval.
+- 36 new tests: the pure conversion core (argv per format, progress parsing,
+  quality order, extension handling), the install plan/candidates/parsers, the
+  worker (queued/running/done, progress, delete-or-keep, failure, single
+  concurrency, cancel-on-unload) and the engine path (forced lossless source,
+  lossy-only fallback, worker progress, interrupted-on-load).
+
+Verified end to end locally with the real compiled native payload: conversions to
+m4a (AAC 44100 Hz + embedded cover), mp3 (320 kb/s + cover) and wav (pcm_s16le)
+all succeeded from a tagged FLAC, with ffmpeg's progress output captured.

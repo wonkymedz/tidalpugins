@@ -80,12 +80,15 @@ export const ffmpegCandidates = (platform: string, env: Record<string, string | 
 };
 
 /** Where TiDLoad puts a downloaded build. */
-export const ffmpegInstallPath = (platform: string, env: Record<string, string | undefined>): string => {
-	if (platform !== "win32") return joinPath(platform, env.HOME ?? "", ".local", "bin", "ffmpeg");
+export const ffmpegInstallDir = (platform: string, env: Record<string, string | undefined>): string => {
+	if (platform !== "win32") return joinPath(platform, env.HOME ?? "", ".local", "bin");
 	const localAppData =
 		env.LOCALAPPDATA ?? (env.USERPROFILE !== undefined ? joinPath(platform, env.USERPROFILE, "AppData", "Local") : "");
-	return joinPath(platform, localAppData, "TiDLoad", "ffmpeg", "bin", "ffmpeg.exe");
+	return joinPath(platform, localAppData, "TiDLoad", "ffmpeg", "bin");
 };
+
+export const ffmpegInstallPath = (platform: string, env: Record<string, string | undefined>): string =>
+	joinPath(platform, ffmpegInstallDir(platform, env), ffmpegExecutableName(platform));
 
 /** "ffmpeg version 8.1-full_build-www.gyan.dev …" → "8.1-full_build-www.gyan.dev" */
 export const parseFfmpegVersion = (output: string): string | undefined => {

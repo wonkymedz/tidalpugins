@@ -14,8 +14,9 @@ import { LunaButtonSetting, LunaNumberSetting, LunaSelectItem, LunaSelectSetting
 import { DEFAULT_PATH_FORMAT, SAMPLE_TAGS, TEMPLATE_PRESETS, renderTemplate } from "./core/template";
 import { platformSeparator } from "./core/paths";
 import { qualityOptions } from "./core/quality";
+import { conversionFor, normaliseOutputFormat, outputFormatOptions } from "./core/convert";
 import { clearQueue, downloadedCount, engine, forgetDownloaded } from "./engine";
-import { ffmpegStatus, refreshFfmpegStatus, setFfmpegPath } from "./ffmpeg";
+import { ffmpegStatus, installManagedFfmpeg, installStatus, refreshFfmpegStatus, setFfmpegPath } from "./ffmpeg";
 import { clearPersistedItems, setDownloadQuality, settings } from "./settings";
 import { refreshNowPlayingButton } from "./nowPlaying";
 import { refreshPlayQueueButton } from "./playQueue";
@@ -51,7 +52,9 @@ const pickFfmpeg = async (): Promise<string | undefined> => {
  */
 const FfmpegRow = () => {
 	const status = React.useSyncExternalStore(ffmpegStatus.subscribe, ffmpegStatus.get, ffmpegStatus.get);
+	const install = React.useSyncExternalStore(installStatus.subscribe, installStatus.get, installStatus.get);
 	const [checkedOnce, setCheckedOnce] = React.useState(false);
+	const [busy, setBusy] = React.useState(false);
 
 	React.useEffect(() => {
 		if (checkedOnce) return;
@@ -59,9 +62,10 @@ const FfmpegRow = () => {
 		void refreshFfmpegStatus();
 	}, [checkedOnce]);
 
+	const ready = status.path !== undefined && status.path !== null;
 	const state = status.checking
 		? "Checking…"
-		: status.path !== undefined && status.path !== null
+		: ready
 			? `Found: ffmpeg ${status.version ?? "(version unknown)"} — ${status.path}`
 			: status.error !== undefined
 				? `Not usable: ${status.error}`
@@ -69,10 +73,18 @@ const FfmpegRow = () => {
 					? "Not found. Conversion needs ffmpeg — install it below, or point TiDLoad at an existing copy."
 					: "Not checked yet.";
 
+	const installing = busy && install.stage !== "done" && install.stage !== "failed";
+	const installPercent =
+		install.total > 0 ? `${Math.round((install.received / install.total) * 100)}%` : `${(install.received / 1048576).toFixed(0)} MB`;
+
 	return (
 		<>
 			<div className="tidload-settings__preview" style={{ whiteSpace: "normal" }}>
-				{state}
+				{installing
+					? `${install.stage === "extracting" ? "Extracting" : "Downloading"} ffmpeg — ${installPercent}${
+							install.stage === "extracting" || install.total === 0 ? "" : ` (${(install.total / 1048576).toFixed(0)} MB)`
+						}`
+					: state}
 			</div>
 			<div className="tidload-settings__presets">
 				<button type="button" className="tidload-btn tidload-btn--ghost" onClick={() => void refreshFfmpegStatus()}>
@@ -96,6 +108,29 @@ const FfmpegRow = () => {
 				>
 					Locate ffmpeg…
 				</button>
+				{!ready && (
+					<button
+						type="button"
+						className="tidload-btn tidload-btn--primary"
+						disabled={busy}
+						onClick={async () => {
+							setBusy(true);
+							try {
+								const result = await installManagedFfmpeg();
+								toast(
+									result.path !== undefined
+										? `TiDLoad: installed ffmpeg ${result.version ?? ""} — conversion is ready`
+										: `TiDLoad: ffmpeg install failed (${result.error ?? "unknown error"})`,
+									{ kind: result.path !== undefined ? "info" : "error", timeout: 12000 },
+								);
+							} finally {
+								setBusy(false);
+							}
+						}}
+					>
+						{installing ? `Downloading… ${installPercent}` : "Download & install ffmpeg (~115 MB)"}
+					</button>
+				)}
 				{settings.ffmpegPath !== undefined && (
 					<button
 						type="button"
@@ -111,7 +146,7 @@ const FfmpegRow = () => {
 			</div>
 			<div className="tidload-muted">
 				TiDLoad runs ffmpeg as a separate process, so the first check asks TidaLuna for file and process access (two
-				one-time prompts).
+				one-time prompts). The downloaded build is pinned and its SHA-256 is verified before anything is extracted.
 			</div>
 		</>
 	);
@@ -129,11 +164,14 @@ export const Settings = () => {
 	const [queueButton, setQueueButton] = React.useState(settings.queueButton);
 	const [nowPlayingButton, setNowPlayingButton] = React.useState(settings.nowPlayingButton);
 	const [skipExisting, setSkipExisting] = React.useState(settings.skipExisting);
+	const [outputFormat, setOutputFormatState] = React.useState(settings.outputFormat);
+	const [keepLosslessSource, setKeepLosslessSource] = React.useState(settings.keepLosslessSource);
 	const [restoreQueue, setRestoreQueue] = React.useState(settings.restoreQueue);
 	const [toasts, setToasts] = React.useState(settings.toasts);
 	const [historyLimit, setHistoryLimit] = React.useState(settings.historyLimit);
 
 	const separator = platformSeparator(typeof __platform === "string" ? __platform : undefined);
+	const converted = conversionFor(outputFormat) !== undefined;
 
 	const preview = React.useMemo(() => {
 		const relative = renderTemplate(pathFormat, SAMPLE_TAGS, { ext: "flac", padTrackNumbers });
@@ -258,6 +296,30 @@ export const Settings = () => {
 					</button>
 				</div>
 			</div>
+
+			<LunaSelectSetting
+				title="Output format"
+				desc={
+					converted
+						? "Converted formats download LOSSLESS (one fast stream) and convert locally with ffmpeg. The download quality above is ignored while this is set."
+						: "Original keeps TIDAL's file as served. Converting from lossless avoids TIDAL's slow segmented AAC."
+				}
+				value={outputFormat}
+				onChange={(event) => setOutputFormatState((settings.outputFormat = normaliseOutputFormat(event.target.value)))}
+			>
+				{outputFormatOptions().map((option) => (
+					<LunaSelectItem key={option.value} value={option.value} children={option.description} />
+				))}
+			</LunaSelectSetting>
+
+			{converted && (
+				<LunaSwitchSetting
+					title="Keep the lossless source"
+					desc="Keep the downloaded FLAC next to the converted file (off: the FLAC is deleted after a successful conversion)."
+					checked={keepLosslessSource}
+					onChange={(_event, checked) => setKeepLosslessSource((settings.keepLosslessSource = checked ?? false))}
+				/>
+			)}
 
 			<LunaSwitchSetting
 				title="Skip files that are already downloaded"

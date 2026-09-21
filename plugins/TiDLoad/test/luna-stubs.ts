@@ -247,7 +247,8 @@ export class MediaItem {
 		// Mirrors the client: TIDAL answers 404 for a quality the track has no stream for, and the lib
 		// turns that into "Track <id> is not available".
 		if (quality !== undefined && track?.failQualities?.includes(quality)) throw new Error(`Track ${this.id} is not available`);
-		return "flac";
+		// Mirrors TIDAL's manifests: lossless tiers are a single BTS/FLAC stream, lossy tiers are DASH (m4a).
+		return quality === "HIGH" || quality === "LOW" ? "m4a" : "flac";
 	}
 	async downloadProgress() {
 		const track = lunaStub.tracks.get(this.id);

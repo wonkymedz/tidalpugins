@@ -212,6 +212,8 @@ export const toPersistedItems = (items: QueueItem[], finishedLimit: number): Que
 			total: 0,
 			speed: 0,
 			segmented: undefined,
+			// A conversion cannot survive a restart (its process is gone) — the engine marks it interrupted.
+			conversion: undefined,
 			startedAt: undefined,
 			finishedAt: undefined,
 			error: undefined,

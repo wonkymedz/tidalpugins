@@ -9,9 +9,9 @@
 
 import type { Tracer } from "@luna/core";
 
-import { ffmpegCandidates } from "./core/ffmpeg";
+import { ffmpegCandidates, ffmpegInstallDir, ffmpegInstallPlan } from "./core/ffmpeg";
 import { createObservable } from "./core/store";
-import { env, findFfmpeg, probe } from "./ffmpeg.native";
+import { env, findFfmpeg, installFfmpeg, installProgress, probe } from "./ffmpeg.native";
 import { settings } from "./settings";
 
 export type FfmpegStatus = {
@@ -89,3 +89,64 @@ export const setFfmpegPath = (path: string | undefined): void => {
 	settings.ffmpegPath = path;
 	ffmpegStatus.set({ checking: false, checked: false });
 };
+
+// #region managed install
+
+export type InstallStatus = {
+	stage: "idle" | "downloading" | "extracting" | "done" | "failed";
+	received: number;
+	total: number;
+	error?: string;
+};
+
+export const installStatus = createObservable<InstallStatus>({ stage: "idle", received: 0, total: 0 });
+
+const INSTALL_POLL_MS = 400;
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Downloads and installs the pinned ffmpeg build, reporting progress through `installStatus`.
+ *
+ * The native side verifies the SHA-256 before extracting anything, so a bad download cannot end up on the
+ * PATH — it just fails with a checksum error.
+ */
+export const installManagedFfmpeg = async (): Promise<{ path?: string; version?: string; error?: string }> => {
+	const platform = typeof __platform === "string" ? __platform : "";
+	const environment = await env();
+	const plan = ffmpegInstallPlan(platform, environment.arch ?? "x64");
+	if (plan === undefined) {
+		return { error: "Automatic install is only offered on Windows — use “Locate ffmpeg…” instead." };
+	}
+
+	installStatus.set({ stage: "downloading", received: 0, total: 0 });
+	let polling = true;
+	const poller = (async () => {
+		while (polling) {
+			await sleep(INSTALL_POLL_MS);
+			const state = await installProgress().catch(() => undefined);
+			if (state !== undefined) installStatus.set(state);
+		}
+	})();
+
+	try {
+		const result = await installFfmpeg(
+			plan.url,
+			plan.sha256,
+			plan.archiveMember,
+			ffmpegInstallDir(platform, environment),
+			plan.executableName,
+		);
+		setFfmpegPath(result.path);
+		await refreshFfmpegStatus();
+		return { path: result.path, version: result.version };
+	} catch (err) {
+		const error = err instanceof Error ? err.message : String(err);
+		installStatus.set({ ...installStatus.get(), stage: "failed", error });
+		return { error };
+	} finally {
+		polling = false;
+		await poller;
+	}
+};
+
+// #endregion

@@ -24,7 +24,26 @@ vi.mock("./disk.native", () => ({
 	},
 }));
 
+/** Conversions are recorded rather than run, so the download loop can be tested on its own. */
+const conversions = vi.hoisted(() => ({
+	queued: [] as { trackId: number; source: string; target: string; format: string }[],
+	update: undefined as undefined | ((trackId: number, update: { status: string; percent?: number; error?: string }) => void),
+}));
+
+vi.mock("./convert", () => ({
+	initConversionWorker: (hooks: { update: (trackId: number, update: { status: string }) => void }) => {
+		conversions.update = hooks.update;
+	},
+	enqueueConversion: (request: { trackId: number; source: string; target: string; format: string }) => {
+		conversions.queued.push(request);
+	},
+	conversionsIdle: async () => {},
+	cancelQueuedConversions: () => {},
+	cancelActiveConversion: async () => {},
+}));
+
 import { Album } from "@luna/lib";
+import { createQueueItem } from "./core/queue";
 import { clearQueue, engine, enqueueCollection, init, shutdown, start } from "./engine";
 import { settings } from "./settings";
 import type { QueueItem } from "./types";
@@ -86,6 +105,10 @@ beforeEach(async () => {
 	settings.useRealMAX = false;
 	settings.pathFormat = "{artist}/{album}/{trackNumber} - {title}";
 	settings.downloadQuality = "HI_RES_LOSSLESS";
+	settings.outputFormat = "original";
+	settings.keepLosslessSource = false;
+	conversions.queued.length = 0;
+	conversions.update = undefined;
 
 	await init({ trace, unloads: new Set(), openPage: () => {} });
 	await clearQueue();
@@ -345,5 +368,90 @@ describe("segmented (lossy DASH) streams", () => {
 		await settle();
 
 		expect(byTrack(1)?.segmented).toBeUndefined();
+	});
+});
+
+describe("local conversion", () => {
+	it("downloads lossless and hands the file to the conversion worker", async () => {
+		settings.outputFormat = "m4a";
+		conversions.queued.length = 0;
+
+		const album = await Album.fromId(10);
+		await enqueueCollection(album!, { start: true });
+		await settle();
+
+		// The whole point: a lossless stream is requested even though the user wants AAC.
+		expect(lunaStub.fileExtensionCalls.map((call) => call.quality)).toEqual(["HI_RES_LOSSLESS", "HI_RES_LOSSLESS"]);
+		expect(lunaStub.downloads.every((entry) => entry.quality === "HI_RES_LOSSLESS")).toBe(true);
+
+		// The entry points at the converted file, and the worker was given source → target.
+		expect(byTrack(1)?.path).toBe(trackPath("First", 1).replace(/\.flac$/, ".m4a"));
+		expect(conversions.queued).toEqual([
+			{ trackId: 1, source: trackPath("First", 1), target: trackPath("First", 1).replace(/\.flac$/, ".m4a"), format: "m4a", durationSeconds: 180 },
+			{ trackId: 2, source: trackPath("Second", 2), target: trackPath("Second", 2).replace(/\.flac$/, ".m4a"), format: "m4a", durationSeconds: 180 },
+		]);
+		expect(byTrack(1)?.conversion).toMatchObject({ format: "m4a", status: "queued" });
+	});
+
+	it("keeps TIDAL's lossy file and says so when a track has no lossless stream", async () => {
+		settings.outputFormat = "m4a";
+		conversions.queued.length = 0;
+		lunaStub.tracks.get(1)!.failQualities = ["HI_RES_LOSSLESS", "LOSSLESS"];
+
+		const album = await Album.fromId(10);
+		await enqueueCollection(album!, { start: true });
+		await settle();
+
+		// Fell through to a lossy tier, downloaded it, and skipped the conversion.
+		expect(lunaStub.downloads.find((entry) => entry.id === 1)?.quality).toBe("HIGH");
+		expect(conversions.queued.map((entry) => entry.trackId)).toEqual([2]);
+		expect(byTrack(1)?.conversion).toMatchObject({ status: "failed" });
+		expect(byTrack(1)?.conversion?.error).toContain("no lossless stream");
+	});
+
+	it("applies the worker's progress reports to the entry", async () => {
+		settings.outputFormat = "mp3";
+
+		const album = await Album.fromId(10);
+		await enqueueCollection(album!, { start: true });
+		await settle();
+
+		conversions.update?.(1, { status: "running", percent: 42 });
+		expect(byTrack(1)?.conversion).toMatchObject({ format: "mp3", status: "running", percent: 42 });
+
+		conversions.update?.(1, { status: "done" });
+		expect(byTrack(1)?.conversion?.status).toBe("done");
+	});
+
+	it("marks a conversion that was interrupted by a restart as failed", async () => {
+		// An entry that was mid-conversion when the client closed.
+		const persisted = {
+			...createQueueItem(
+				{
+					trackId: 42,
+					type: "track" as const,
+					title: "Interrupted",
+					artist: "Someone",
+					albumArtist: "Someone",
+					album: "Album",
+					quality: "HI_RES_LOSSLESS" as const,
+					qualityName: "HiRes",
+				},
+				"Album: Album",
+				"batch#1",
+				1,
+			),
+			status: "done" as const,
+			path: "/music/Interrupted.m4a",
+			conversion: { format: "m4a" as const, status: "running" as const, percent: 60 },
+		};
+		lunaStub.storage.set("TiDLoad.items", [persisted]);
+
+		await init({ trace, unloads: new Set(), openPage: () => {} });
+
+		const restored = engine.get().items.find((item) => item.trackId === 42);
+		expect(restored?.conversion).toMatchObject({ status: "failed" });
+		expect(restored?.conversion?.error).toContain("interrupted");
+		expect(restored?.path).toBe("/music/Interrupted.m4a");
 	});
 });

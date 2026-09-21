@@ -10,6 +10,7 @@ import { ReactiveStore } from "@luna/core";
 import { Quality } from "@luna/lib";
 
 import { DEFAULT_AUDIO_QUALITY, isAudioQuality, normaliseAudioQuality, type AudioQuality } from "./core/quality";
+import { normaliseOutputFormat } from "./core/convert";
 import { toPersistedItems } from "./core/queue";
 import { DEFAULT_PATH_FORMAT } from "./core/template";
 import type { QueueItem, Settings } from "./types";
@@ -24,6 +25,8 @@ export const DEFAULT_SETTINGS: Settings = {
 	sidebarEntry: true,
 	queueButton: true,
 	nowPlayingButton: true,
+	outputFormat: "original",
+	keepLosslessSource: false,
 	skipExisting: true,
 	restoreQueue: "paused",
 	toasts: true,
@@ -43,6 +46,8 @@ if (settings.menuAction !== "start" && settings.menuAction !== "queue") settings
 if (typeof settings.sidebarEntry !== "boolean") settings.sidebarEntry = DEFAULT_SETTINGS.sidebarEntry;
 if (typeof settings.queueButton !== "boolean") settings.queueButton = DEFAULT_SETTINGS.queueButton;
 if (typeof settings.nowPlayingButton !== "boolean") settings.nowPlayingButton = DEFAULT_SETTINGS.nowPlayingButton;
+settings.outputFormat = normaliseOutputFormat(settings.outputFormat);
+if (typeof settings.keepLosslessSource !== "boolean") settings.keepLosslessSource = DEFAULT_SETTINGS.keepLosslessSource;
 if (settings.ffmpegPath !== undefined && (typeof settings.ffmpegPath !== "string" || settings.ffmpegPath.trim() === "")) {
 	settings.ffmpegPath = undefined;
 }
