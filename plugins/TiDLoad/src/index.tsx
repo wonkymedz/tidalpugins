@@ -18,6 +18,7 @@ import { DownloadsPage } from "./DownloadsPage";
 import { Settings } from "./SettingsPanel";
 import { registerContextMenu } from "./contextMenu";
 import { enqueueTrackRefs, init as initEngine, shutdown } from "./engine";
+import { installNowPlayingButton } from "./nowPlaying";
 import { installPlayQueueButton } from "./playQueue";
 import { installSidebarEntry } from "./sidebar";
 
@@ -40,6 +41,9 @@ registerContextMenu(unloads, trace, openPage);
 installSidebarEntry(unloads, trace, openPage);
 installPlayQueueButton(unloads, trace, (queue) => {
 	void enqueueTrackRefs(queue.refs, queue.label, { start: true, batchSize: queue.refs.length });
+});
+installNowPlayingButton(unloads, trace, (now) => {
+	void enqueueTrackRefs([now.ref], "Now playing", { start: true, batchSize: 1 });
 });
 unloads.add(shutdown);
 

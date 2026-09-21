@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	menuAction: "start",
 	sidebarEntry: true,
 	queueButton: true,
+	nowPlayingButton: true,
 	skipExisting: true,
 	restoreQueue: "paused",
 	toasts: true,
@@ -38,6 +39,7 @@ if (settings.saveMode !== "default" && settings.saveMode !== "ask") settings.sav
 if (settings.menuAction !== "start" && settings.menuAction !== "queue") settings.menuAction = DEFAULT_SETTINGS.menuAction;
 if (typeof settings.sidebarEntry !== "boolean") settings.sidebarEntry = DEFAULT_SETTINGS.sidebarEntry;
 if (typeof settings.queueButton !== "boolean") settings.queueButton = DEFAULT_SETTINGS.queueButton;
+if (typeof settings.nowPlayingButton !== "boolean") settings.nowPlayingButton = DEFAULT_SETTINGS.nowPlayingButton;
 if (typeof settings.skipExisting !== "boolean") settings.skipExisting = DEFAULT_SETTINGS.skipExisting;
 if (settings.restoreQueue !== "paused" && settings.restoreQueue !== "auto" && settings.restoreQueue !== "discard") {
 	settings.restoreQueue = DEFAULT_SETTINGS.restoreQueue;

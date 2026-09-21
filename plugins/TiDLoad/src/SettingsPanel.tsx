@@ -15,6 +15,7 @@ import { DEFAULT_PATH_FORMAT, SAMPLE_TAGS, TEMPLATE_PRESETS, renderTemplate } fr
 import { platformSeparator } from "./core/paths";
 import { clearQueue, downloadedCount, engine, forgetDownloaded } from "./engine";
 import { clearPersistedItems, settings } from "./settings";
+import { refreshNowPlayingButton } from "./nowPlaying";
 import { refreshPlayQueueButton } from "./playQueue";
 import { refreshSidebarEntry } from "./sidebar";
 import { toast } from "./notify";
@@ -42,6 +43,7 @@ export const Settings = () => {
 	const [menuAction, setMenuAction] = React.useState(settings.menuAction);
 	const [sidebarEntry, setSidebarEntry] = React.useState(settings.sidebarEntry);
 	const [queueButton, setQueueButton] = React.useState(settings.queueButton);
+	const [nowPlayingButton, setNowPlayingButton] = React.useState(settings.nowPlayingButton);
 	const [skipExisting, setSkipExisting] = React.useState(settings.skipExisting);
 	const [restoreQueue, setRestoreQueue] = React.useState(settings.restoreQueue);
 	const [toasts, setToasts] = React.useState(settings.toasts);
@@ -181,6 +183,16 @@ export const Settings = () => {
 				onChange={(_event, checked) => {
 					setQueueButton((settings.queueButton = checked ?? true));
 					refreshPlayQueueButton();
+				}}
+			/>
+
+			<LunaSwitchSetting
+				title="Now playing button"
+				desc="Add a download button to the now-playing bar, next to the favourite button. It downloads the track that is playing, read fresh at click time."
+				checked={nowPlayingButton}
+				onChange={(_event, checked) => {
+					setNowPlayingButton((settings.nowPlayingButton = checked ?? true));
+					refreshNowPlayingButton();
 				}}
 			/>
 

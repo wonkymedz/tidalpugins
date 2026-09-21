@@ -13,7 +13,7 @@ import type { LunaUnloads, Tracer } from "@luna/core";
 import { PlayState, redux } from "@luna/lib";
 
 import { pluralise } from "./core/format";
-import { applyDownloadIcon, createDownloadIcon, isIconElement } from "./icons";
+import { makeIconButton, setIconButtonLabel } from "./icons";
 import { settings } from "./settings";
 import type { TrackRef } from "./types";
 
@@ -108,44 +108,15 @@ const queueLabel = (count: number): string => {
 	return `TiDLoad: download ${tracks} from the play queue`;
 };
 
-/** Keeps the button an icon button: original TIDAL markup, our download icon, no visible text. */
-const renderIconButton = (button: HTMLElement, count: number): void => {
-	const svg = button.querySelector("svg");
-	if (svg !== null) applyDownloadIcon(svg);
-	else button.prepend(createDownloadIcon());
-
-	// Drop any label text (and its wrapper text) but keep the elements TIDAL uses for padding/layout.
-	for (const node of [...button.childNodes]) {
-		if (node.nodeType === Node.TEXT_NODE) node.textContent = "";
-	}
-	for (const element of [...button.querySelectorAll<HTMLElement>("*")]) {
-		if (isIconElement(element)) continue;
-		if (element.children.length === 0 && (element.textContent ?? "").trim() !== "") element.textContent = "";
-	}
-
-	const label = queueLabel(count);
-	button.setAttribute("aria-label", label);
-	button.setAttribute("title", label);
-};
-
 export const buildQueueButton = (
 	template: HTMLElement | undefined,
 	contents: PlayQueueContents,
 	onDownload: (contents: PlayQueueContents) => void,
 ): HTMLElement => {
-	const button = template !== undefined ? (template.cloneNode(true) as HTMLElement) : document.createElement("button");
-	if (template === undefined) button.className = "tidload-btn";
-
-	for (const element of [button, ...button.querySelectorAll("[data-test]")]) element.removeAttribute("data-test");
-	for (const element of [button, ...button.querySelectorAll("[id]")]) element.removeAttribute("id");
-	button.removeAttribute("disabled");
-	button.removeAttribute("aria-disabled");
-	button.setAttribute(QUEUE_BUTTON_ATTRIBUTE, "true");
-	button.setAttribute("type", "button");
-	button.style.opacity = "1";
-	button.style.pointerEvents = "auto";
-
-	renderIconButton(button, contents.refs.length);
+	const button = makeIconButton(template, {
+		attribute: QUEUE_BUTTON_ATTRIBUTE,
+		label: queueLabel(contents.refs.length),
+	});
 
 	const activate = (event: Event) => {
 		event.preventDefault();
@@ -187,11 +158,7 @@ export const installPlayQueueButton = (
 
 		// Already injected into this panel — just keep the tooltip's count fresh.
 		if (existing !== null && anchorInfo.panel.contains(existing)) {
-			const label = queueLabel(contents.refs.length);
-			if (existing.getAttribute("aria-label") !== label) {
-				existing.setAttribute("aria-label", label);
-				existing.setAttribute("title", label);
-			}
+			setIconButtonLabel(existing, queueLabel(contents.refs.length));
 			return;
 		}
 

@@ -41,9 +41,10 @@ export const lunaStub = {
 	storage: new Map<string, unknown>(),
 	/** Called after a stub download finishes, so tests can pretend the file now exists. */
 	onDownload: undefined as ((path: string, trackId: number) => void) | undefined,
-	/** Fake redux state (play queue, content store) that tests can mutate. */
+	/** Fake redux state (play queue, playback context, content store) that tests can mutate. */
 	state: {
-		content: { albums: {} as Record<string, unknown>, mediaItems: {} as Record<string, { item: { id: number }; type: "track" | "video" }> },
+		content: { albums: {} as Record<string, unknown>, mediaItems: {} as Record<string, { item: { id: number; title?: string }; type: "track" | "video" }> },
+		playbackControls: { playbackContext: { actualProductId: undefined as number | undefined, actualVideoQuality: null as unknown } },
 		playQueue: {
 			elements: [] as { mediaItemId: number; uid: string; priority: string; context: { type: string } }[],
 			backupElements: [],
@@ -64,6 +65,7 @@ export const lunaStub = {
 		progressCursor.clear();
 		this.state.content.albums = {};
 		this.state.content.mediaItems = {};
+		this.state.playbackControls.playbackContext = { actualProductId: undefined, actualVideoQuality: null };
 		this.state.playQueue.elements = [];
 		this.state.playQueue.sourceName = "";
 	},
@@ -339,6 +341,9 @@ export const redux = {
 export class PlayState {
 	static get playQueue() {
 		return lunaStub.state.playQueue as never;
+	}
+	static get playbackContext() {
+		return lunaStub.state.playbackControls.playbackContext;
 	}
 	static nextMediaItem() {
 		return Promise.resolve(undefined);

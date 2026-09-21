@@ -88,6 +88,8 @@ export type Settings = {
 	sidebarEntry: boolean;
 	/** Show a "Download queue" button in the play queue view. */
 	queueButton: boolean;
+	/** Show a "download the playing track" button in the now-playing bar. */
+	nowPlayingButton: boolean;
 	/** Skip a track when the destination file already exists (asks for filesystem access once). */
 	skipExisting: boolean;
 	restoreQueue: RestoreBehaviour;
