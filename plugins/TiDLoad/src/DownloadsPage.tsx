@@ -266,7 +266,14 @@ const ArtistPicker = React.memo(() => {
 			</header>
 
 			{loading && <div className="tidload-muted">Looking up albums…</div>}
-			{error !== undefined && <div className="tidload-error">{error}</div>}
+			{error !== undefined && (
+				<div className="tidload-error">
+					{error}
+					<div className="tidload-muted">
+						Raw responses were logged to the TIDAL console (Ctrl+Shift+I) as <code>TiDLoad: …payload…</code>.
+					</div>
+				</div>
+			)}
 
 			{!loading && albums.length > 0 && (
 				<>

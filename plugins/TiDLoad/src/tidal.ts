@@ -9,11 +9,21 @@
  */
 
 import type { Tracer } from "@luna/core";
-import { Album, MediaItem, MediaItems, Playlist, TidalApi, type MediaCollection, type redux } from "@luna/lib";
+import { Album, MediaItem, MediaItems, Playlist, TidalApi, redux, type MediaCollection } from "@luna/lib";
 
-import { dedupeAlbums, extractAlbumsFromArtistPage, extractAlbumsFromLegacyList, extractAlbumsFromV2, sortAlbums } from "./core/artist";
+import {
+	albumsForArtistInRecords,
+	dedupeAlbums,
+	describeProbes,
+	extractAlbumsFromArtistPage,
+	extractAlbumsFromLegacyList,
+	extractAlbumsFromV2,
+	sortAlbums,
+	type ArtistAlbumProbe as CoreArtistAlbumProbe,
+	type ArtistAlbumRecord as CoreArtistAlbumRecord,
+} from "./core/artist";
 import { joinPath, platformSeparator } from "./core/paths";
-import type { ArtistAlbum, TrackMeta } from "./types";
+import type { ArtistAlbum, TrackMeta, TrackRef } from "./types";
 
 const numberOrUndefined = (value: unknown): number | undefined => {
 	const parsed = Number(value);
@@ -31,6 +41,7 @@ export const resolveTrackMeta = async (mediaItem: MediaItem): Promise<TrackMeta>
 
 	return {
 		trackId: Number(mediaItem.id),
+		type: mediaItem.contentType === "video" ? "video" : "track",
 		title: track.title ?? "Unknown Title",
 		artist: artistNames.join(", ") || "Unknown Artist",
 		albumArtist: artistNames.join(", ") || "Unknown Artist",
@@ -82,76 +93,117 @@ export const artistName = async (artistId: number, trace?: Tracer): Promise<stri
 	return artist?.name ?? `Artist ${artistId}`;
 };
 
+/** Outcome of one artist-album discovery attempt, surfaced in the UI so failures are self-explaining. */
+export type ArtistAlbumProbe = CoreArtistAlbumProbe;
+
+export type ArtistAlbumResult = {
+	albums: ArtistAlbum[];
+	/** Short summary of the probes, e.g. `pages/artist: 0, artists/{id}/albums: error (404)`. */
+	detail: string;
+};
+
+export { describeProbes };
+
 /**
- * TidaLuna's public API has no "albums by artist" call, so TiDLoad tries three endpoints in order and
- * reports which one worked. Every attempt is logged so a failing client can be diagnosed from the
- * console.
+ * Albums already loaded into the client's redux store. Free (no network) and works whenever the user has
+ * browsed the artist page, but only contains what TIDAL has fetched so far.
  */
-export const resolveArtistAlbums = async (artistId: number, trace?: Tracer): Promise<{ albums: ArtistAlbum[]; via: string }> => {
-	const queryArgs = TidalApi.queryArgs();
-
-	// 1. Tidal's own page API — the same endpoint TidaLuna uses for album pages.
+const albumsForArtistFromStore = (artistId: number): ArtistAlbum[] => {
 	try {
-		const page = await TidalApi.fetch<unknown>(`https://desktop.tidal.com/v1/pages/artist?artistId=${artistId}&${queryArgs}`);
-		const albums = sortAlbums(extractAlbumsFromArtistPage(page));
-		if (albums.length > 0) return { albums, via: "pages/artist" };
-		trace?.msg.log(`TiDLoad: pages/artist returned no albums for artist ${artistId}`, page);
-	} catch (err) {
-		trace?.msg.warn.withContext(`TiDLoad: pages/artist failed for artist ${artistId}`)(err);
+		const albums = redux.store.getState()?.content?.albums as Record<string, CoreArtistAlbumRecord> | undefined;
+		return albumsForArtistInRecords(albums, artistId);
+	} catch {
+		return [];
 	}
+};
 
-	// 2. Legacy paginated album list.
-	try {
-		const collected: ArtistAlbum[] = [];
+/**
+ * TidaLuna's public API has no "albums by artist" call, so TiDLoad probes four sources and merges what
+ * they return. Every probe is logged (and summarised in the picker on failure) so a client that behaves
+ * differently can be diagnosed from one run instead of guesswork.
+ */
+export const resolveArtistAlbums = async (artistId: number, trace?: Tracer): Promise<ArtistAlbumResult> => {
+	const queryArgs = TidalApi.queryArgs();
+	const probes: ArtistAlbumProbe[] = [];
+	const collected: ArtistAlbum[] = [];
+
+	const probe = async (via: string, attempt: () => Promise<ArtistAlbum[]>): Promise<void> => {
+		try {
+			const albums = await attempt();
+			probes.push({ via, count: albums.length, status: albums.length > 0 ? "ok" : "empty" });
+			if (albums.length > 0) collected.push(...albums);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			probes.push({ via, count: 0, status: "error", error: message });
+			trace?.msg.warn.withContext(`TiDLoad: artist ${artistId} ${via} failed`)(err);
+		}
+	};
+
+	// 1. What the client already has in memory.
+	await probe("client store", async () => albumsForArtistFromStore(artistId));
+
+	// 2. Tidal's own page API — the shape TidaLuna uses for album pages.
+	await probe("pages/artist", async () => {
+		const page = await TidalApi.fetch<unknown>(`https://desktop.tidal.com/v1/pages/artist?artistId=${artistId}&${queryArgs}`);
+		const albums = extractAlbumsFromArtistPage(page);
+		if (albums.length === 0) trace?.msg.log(`TiDLoad: pages/artist payload for artist ${artistId}`, page);
+		return albums;
+	});
+
+	// 3. Legacy paginated album list.
+	await probe("artists/{id}/albums", async () => {
+		const pages: ArtistAlbum[] = [];
 		const pageSize = 50;
 		for (let offset = 0; offset < 2000; offset += pageSize) {
 			const response = await TidalApi.fetch<unknown>(
 				`https://desktop.tidal.com/v1/artists/${artistId}/albums?limit=${pageSize}&offset=${offset}&${queryArgs}`,
 			);
 			const page = extractAlbumsFromLegacyList(response);
-			if (page.length === 0) break;
-			collected.push(...page);
+			if (page.length === 0) {
+				if (offset === 0) trace?.msg.log(`TiDLoad: artists/{id}/albums payload for artist ${artistId}`, response);
+				break;
+			}
+			pages.push(...page);
 			if (page.length < pageSize) break;
 		}
-		const albums = sortAlbums(dedupeAlbums(collected));
-		if (albums.length > 0) return { albums, via: "artists/{id}/albums" };
-		trace?.msg.log(`TiDLoad: artists/{id}/albums returned no albums for artist ${artistId}`);
-	} catch (err) {
-		trace?.msg.warn.withContext(`TiDLoad: artists/{id}/albums failed for artist ${artistId}`)(err);
-	}
+		return pages;
+	});
 
-	// 3. OpenAPI v2 relationship endpoint.
-	try {
+	// 4. OpenAPI v2 relationship endpoint.
+	await probe("openapi v2", async () => {
 		const response = await TidalApi.fetch<unknown>(
 			`https://openapi.tidal.com/v2/artists/${artistId}/relationships/albums?${queryArgs}&limit=100`,
 		);
-		const albums = sortAlbums(extractAlbumsFromV2(response));
-		if (albums.length > 0) return { albums, via: "openapi v2" };
-		trace?.msg.log(`TiDLoad: openapi v2 returned no albums for artist ${artistId}`);
-	} catch (err) {
-		trace?.msg.warn.withContext(`TiDLoad: openapi v2 failed for artist ${artistId}`)(err);
-	}
+		const albums = extractAlbumsFromV2(response);
+		if (albums.length === 0) trace?.msg.log(`TiDLoad: openapi v2 payload for artist ${artistId}`, response);
+		return albums;
+	});
 
-	return { albums: [], via: "none" };
+	const albums = sortAlbums(dedupeAlbums(collected));
+	const detail = describeProbes(probes);
+	trace?.msg.log(`TiDLoad: artist ${artistId} → ${albums.length} albums (${detail})`);
+	return { albums, detail };
 };
 
-export const trackIdsForAlbum = async (albumId: number): Promise<number[]> => {
+export const trackRefsForAlbum = async (albumId: number): Promise<TrackRef[]> => {
 	const items = await TidalApi.albumItems(albumId).catch(() => undefined);
-	return collectTrackIds(items);
+	return collectTrackRefs(items);
 };
 
-export const trackIdsForPlaylist = async (playlistUuid: string): Promise<number[]> => {
+export const trackRefsForPlaylist = async (playlistUuid: string): Promise<TrackRef[]> => {
 	const response = await TidalApi.playlistItems(playlistUuid).catch(() => undefined);
-	return collectTrackIds(response?.items);
+	return collectTrackRefs(response?.items);
 };
 
-const collectTrackIds = (items: redux.MediaItem[] | undefined): number[] => {
-	const ids: number[] = [];
+/** Keeps the content type so playlist videos are loaded as videos rather than tracks. */
+const collectTrackRefs = (items: redux.MediaItem[] | undefined): TrackRef[] => {
+	const refs: TrackRef[] = [];
 	for (const entry of items ?? []) {
 		const id = numberOrUndefined(entry?.item?.id);
-		if (id !== undefined) ids.push(id);
+		if (id === undefined) continue;
+		refs.push({ id, type: entry?.type === "video" ? "video" : "track" });
 	}
-	return ids;
+	return refs;
 };
 
 /** Display path for dialogs and the UI (downloads themselves get a segment array). */

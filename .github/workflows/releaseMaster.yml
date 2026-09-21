@@ -7,6 +7,11 @@ on:
     paths-ignore:
       - "**/*.md"
       - ".vscode/**"
+  workflow_dispatch:
+
+# Needed so the release can be created with the repository's GITHUB_TOKEN.
+permissions:
+  contents: write
 
 jobs:
   Build:
@@ -24,11 +29,15 @@ jobs:
           name: luna-artifacts
           path: ./dist/
 
-      - name: Publish latest release on GitHub
-        uses: marvinpinto/action-automatic-releases@latest
+      # Publishes dist/** as the "latest" release, giving TidaLuna a stable store URL:
+      # https://github.com/<owner>/<repo>/releases/download/latest/store.json
+      # (softprops/action-gh-release is used instead of the archived
+      # marvinpinto/action-automatic-releases that the template ships with.)
+      - name: Publish latest release
+        uses: softprops/action-gh-release@v2
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          automatic_release_tag: latest
+          tag_name: latest
+          name: Latest Release
+          make_latest: true
           prerelease: false
-          title: Latest Release
           files: ./dist/**

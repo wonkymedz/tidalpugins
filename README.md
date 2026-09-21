@@ -14,7 +14,7 @@ Queue up **tracks, albums, playlists and artists**, watch them download with liv
   - Queue table with cover art, status, quality, per-track progress, speed and ETA
   - Pause / resume the queue, reorder pending items, remove items, retry failed ones, clear finished ones
   - Global stats: queued, downloading, downloaded, already present, failed, bytes transferred
-- **Artist downloads** — pick an artist, choose which albums to grab from a checklist, then queue them. Works from *Download artist: …* on any track/album menu, from an artist page context menu when TIDAL exposes one, or by pasting an artist link.
+- **Artist downloads** — pick an artist, choose which albums to grab from a checklist, then queue them. Works from *Download artist: …* on any track/album menu, from an artist page context menu when TIDAL exposes one, or by pasting an artist link. Playlists that mix tracks and videos keep each item's content type.
 - **Add from URL or ID** — paste a Tidal track / album / playlist / artist link (or `album:12345`) into the page.
 - **Persistent queue and history** — an interrupted queue is restored (paused by default) after a restart; history remembers what was downloaded, where, and at what quality.
 - **Template-driven filenames** — folders and filenames from any TIDAL tag, with a live preview in settings.
@@ -110,13 +110,20 @@ The `luna` devDependency ships TidaLuna's sources and maps `@luna/*` to them, bu
 
 ### Artist albums
 
-TidaLuna's public API has no "albums by artist" call, so TiDLoad probes three endpoints in order and logs which one worked (TIDAL desktop console):
+TidaLuna's public API has no "albums by artist" call, so TiDLoad queries four sources, **merges** what they return, and logs a per-source summary (visible in the picker if nothing is found):
 
-1. `desktop.tidal.com/v1/pages/artist?artistId=…` (the shape TidaLuna uses for album pages)
-2. `desktop.tidal.com/v1/artists/{id}/albums` (paginated)
-3. `openapi.tidal.com/v2/artists/{id}/relationships/albums`
+1. `redux.content.albums` — albums the client already has in memory (instant, no network)
+2. `desktop.tidal.com/v1/pages/artist?artistId=…` (the shape TidaLuna uses for album pages)
+3. `desktop.tidal.com/v1/artists/{id}/albums` (paginated)
+4. `openapi.tidal.com/v2/artists/{id}/relationships/albums`
 
-If all three fail the page shows which one was tried, and pasting an album/playlist link still works.
+Example of the diagnostic line in the console:
+
+```
+TiDLoad: artist 1234 → 12 albums (client store: 0, pages/artist: 12, artists/{id}/albums: error (404), openapi v2: 0)
+```
+
+If every source is empty the picker shows that summary, and pasting an album or playlist link into the page still works.
 
 ## Credits
 

@@ -101,6 +101,7 @@ describe("tagsFromMeta", () => {
 	it("maps queue metadata onto template tags", () => {
 		const tags = tagsFromMeta({
 			trackId: 1,
+			type: "track",
 			title: "Xtal",
 			artist: "Aphex Twin",
 			albumArtist: "Aphex Twin",

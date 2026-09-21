@@ -10,6 +10,12 @@ export type AudioQuality = number;
 
 export type DownloadStatus = "pending" | "active" | "done" | "failed" | "skipped";
 
+/** Tidal's content type for a queue entry — playlists can mix tracks and videos. */
+export type ContentType = "track" | "video";
+
+/** A track id plus its content type, as handed to `MediaItem.fromId`. */
+export type TrackRef = { id: number; type?: ContentType };
+
 /**
  * The cheap, display-only metadata for a queued track. Everything here comes from the in-memory Tidal
  * store (no network calls), so queueing a 500 track artist stays instant. The authoritative tags used
@@ -17,6 +23,8 @@ export type DownloadStatus = "pending" | "active" | "done" | "failed" | "skipped
  */
 export type TrackMeta = {
 	trackId: number;
+	/** "track" or "video" — needed to load the item back for downloading. */
+	type: ContentType;
 	title: string;
 	artist: string;
 	albumArtist: string;

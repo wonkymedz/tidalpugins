@@ -59,6 +59,7 @@ export const loadPersistedQueue = async (): Promise<QueueItem[]> => {
 		if (!Array.isArray(stored)) return [];
 		return stored.filter(isQueueItem).map((item) => ({
 			...item,
+			type: item.type === "video" ? "video" : "track",
 			batchSize: typeof item.batchSize === "number" ? item.batchSize : 1,
 			status: "pending",
 			downloaded: 0,

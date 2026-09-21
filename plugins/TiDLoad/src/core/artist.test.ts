@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	albumsForArtistInRecords,
 	dedupeAlbums,
+	describeProbes,
 	extractAlbumsDeep,
 	extractAlbumsFromArtistPage,
 	extractAlbumsFromLegacyList,
@@ -114,5 +116,40 @@ describe("dedupeAlbums / sortAlbums", () => {
 			{ id: 3, title: "Undated" },
 		]);
 		expect(sorted.map((album) => album.id)).toEqual([3, 2, 1]);
+	});
+});
+
+describe("albumsForArtistInRecords", () => {
+	const records = {
+		"1": { id: 1, title: "Mine", numberOfTracks: 8, artist: { id: 42 } },
+		"2": { id: 2, title: "Also mine", artists: [{ id: 7 }, { id: 42 }] },
+		"3": { id: 3, title: "Someone else", artist: { id: 99 } },
+		"4": { id: "not-an-id", title: "Broken", artist: { id: 42 } },
+	};
+
+	it("keeps only albums that credit the artist", () => {
+		expect(albumsForArtistInRecords(records, 42).map((album) => album.id)).toEqual([1, 2]);
+	});
+
+	it("tolerates missing or malformed store content", () => {
+		expect(albumsForArtistInRecords(undefined, 42)).toEqual([]);
+		expect(albumsForArtistInRecords({}, 42)).toEqual([]);
+		expect(albumsForArtistInRecords({ "9": {} as never }, 42)).toEqual([]);
+	});
+});
+
+describe("describeProbes", () => {
+	it("summarises each attempt", () => {
+		expect(
+			describeProbes([
+				{ via: "client store", count: 0, status: "empty" },
+				{ via: "pages/artist", count: 12, status: "ok" },
+				{ via: "openapi v2", count: 0, status: "error", error: "404 Not Found" },
+			]),
+		).toBe("client store: 0, pages/artist: 12, openapi v2: error (404 Not Found)");
+	});
+
+	it("handles an empty probe list", () => {
+		expect(describeProbes([])).toBe("");
 	});
 });

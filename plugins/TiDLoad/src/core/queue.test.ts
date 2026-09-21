@@ -18,6 +18,7 @@ import {
 
 const meta = (trackId: number, title = `Track ${trackId}`): TrackMeta => ({
 	trackId,
+	type: "track",
 	title,
 	artist: "Artist",
 	albumArtist: "Artist",

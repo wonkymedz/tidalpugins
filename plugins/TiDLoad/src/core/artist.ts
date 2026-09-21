@@ -6,6 +6,18 @@
 
 import type { ArtistAlbum } from "../types";
 
+/** Outcome of one artist-album discovery attempt — surfaced in the UI so failures explain themselves. */
+export type ArtistAlbumProbe = {
+	via: string;
+	count: number;
+	status: "ok" | "empty" | "error";
+	error?: string;
+};
+
+/** e.g. `client store: 0, pages/artist: 12, artists/{id}/albums: error (404)` */
+export const describeProbes = (probes: ArtistAlbumProbe[]): string =>
+	probes.map((probe) => (probe.status === "error" ? `${probe.via}: error (${probe.error})` : `${probe.via}: ${probe.count}`)).join(", ");
+
 const MAX_DEPTH = 14;
 
 const toNumber = (value: unknown): number | undefined => {
@@ -141,4 +153,45 @@ export const extractAlbumsFromV2 = (response: any): ArtistAlbum[] => {
 		)
 		.filter((album: ArtistAlbum | undefined): album is ArtistAlbum => album !== undefined);
 	return dedupeAlbums(albums);
+};
+
+/** Minimal shape of an album entry in TIDAL's redux store. */
+export type ArtistAlbumRecord = {
+	id?: unknown;
+	title?: unknown;
+	numberOfTracks?: unknown;
+	releaseDate?: unknown;
+	cover?: unknown;
+	artist?: { id?: unknown };
+	artists?: { id?: unknown }[];
+};
+
+/**
+ * Albums belonging to an artist that the client already holds in memory (redux `content.albums`).
+ * Free to query and instant, but only contains albums TIDAL has already loaded.
+ */
+export const albumsForArtistInRecords = (
+	records: Record<string, ArtistAlbumRecord> | undefined,
+	artistId: number,
+): ArtistAlbum[] => {
+	if (records === undefined || records === null || typeof records !== "object") return [];
+
+	const matches: ArtistAlbum[] = [];
+	for (const record of Object.values(records)) {
+		if (record === undefined || record === null) continue;
+		const belongs =
+			Number(record.artist?.id) === artistId || (record.artists ?? []).some((artist) => Number(artist?.id) === artistId);
+		if (!belongs) continue;
+
+		const id = toNumber(record.id);
+		if (id === undefined || id <= 0) continue;
+		matches.push({
+			id,
+			title: typeof record.title === "string" && record.title !== "" ? record.title : "Unknown Album",
+			numberOfTracks: toNumber(record.numberOfTracks),
+			releaseDate: typeof record.releaseDate === "string" ? record.releaseDate : undefined,
+			cover: typeof record.cover === "string" ? record.cover : undefined,
+		});
+	}
+	return matches;
 };

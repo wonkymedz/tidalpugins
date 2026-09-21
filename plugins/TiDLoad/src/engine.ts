@@ -47,10 +47,9 @@ import {
 	labelForCollection,
 	resolveArtistAlbums,
 	resolveTrackMeta,
-	trackIdsForAlbum,
-	trackIdsForPlaylist,
+	trackRefsForAlbum,
 } from "./tidal";
-import type { HistoryEntry, QueueItem, QueueState, TrackMeta } from "./types";
+import type { ContentType, HistoryEntry, QueueItem, QueueState, TrackMeta, TrackRef } from "./types";
 
 export type EngineState = QueueState & {
 	history: HistoryEntry[];
@@ -80,7 +79,7 @@ const state = createObservable<EngineState>({ items: [], running: false, history
 export const engine = state;
 
 let dependencies: EngineDependencies | undefined;
-const mediaItemCache = new Map<number, MediaItem>();
+const mediaItemCache = new Map<string, MediaItem>();
 const batchDestinations = new Map<string, { target: string | string[]; displayPath: string }>();
 let loopPromise: Promise<void> | undefined;
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
@@ -111,11 +110,14 @@ const schedulePersist = (): void => {
 	}, PERSIST_DEBOUNCE_MS);
 };
 
-const getMediaItem = async (trackId: number): Promise<MediaItem | undefined> => {
-	const cached = mediaItemCache.get(trackId);
+const cacheKey = (trackId: number, type: ContentType = "track"): string => `${type}:${trackId}`;
+
+const getMediaItem = async (trackId: number, type: ContentType = "track"): Promise<MediaItem | undefined> => {
+	const key = cacheKey(trackId, type);
+	const cached = mediaItemCache.get(key);
 	if (cached !== undefined) return cached;
-	const mediaItem = await MediaItem.fromId(trackId);
-	if (mediaItem !== undefined) mediaItemCache.set(trackId, mediaItem);
+	const mediaItem = await MediaItem.fromId(trackId, type);
+	if (mediaItem !== undefined) mediaItemCache.set(key, mediaItem);
 	return mediaItem;
 };
 
@@ -166,19 +168,21 @@ export const shutdown = (): void => {
 
 // #region queueing
 
-const enqueueTrackIds = async (ids: number[], source: string, options: EnqueueOptions = {}): Promise<{ added: number; duplicates: number }> => {
-	if (ids.length === 0) return { added: 0, duplicates: 0 };
+const enqueueTracks = async (refs: TrackRef[], source: string, options: EnqueueOptions = {}): Promise<{ added: number; duplicates: number }> => {
+	if (refs.length === 0) return { added: 0, duplicates: 0 };
 
 	const batch = `${source}#${Date.now()}`;
-	const batchSize = options.batchSize ?? ids.length;
+	const batchSize = options.batchSize ?? refs.length;
 
-	state.update({ resolving: { label: source, done: 0, total: ids.length } });
+	state.update({ resolving: { label: source, done: 0, total: refs.length } });
 	let resolved = 0;
 
-	const metas = await mapWithConcurrency(ids, METADATA_CONCURRENCY, async (trackId) => {
-		const mediaItem = await getMediaItem(trackId).catch(() => undefined);
+	const metas = await mapWithConcurrency(refs, METADATA_CONCURRENCY, async (ref) => {
+		const mediaItem = await getMediaItem(ref.id, ref.type).catch(() => undefined);
 		resolved++;
-		if (resolved % 5 === 0 || resolved === ids.length) state.update({ resolving: { label: source, done: resolved, total: ids.length } });
+		if (resolved % 5 === 0 || resolved === refs.length) {
+			state.update({ resolving: { label: source, done: resolved, total: refs.length } });
+		}
 		if (mediaItem === undefined) return undefined;
 		return resolveTrackMeta(mediaItem).catch(() => undefined);
 	});
@@ -203,9 +207,13 @@ const enqueueTrackIds = async (ids: number[], source: string, options: EnqueueOp
 
 export const enqueueCollection = async (collection: MediaCollection, options: EnqueueOptions = {}): Promise<void> => {
 	const source = await labelForCollection(collection);
-	const ids: number[] = [];
-	for await (const mediaItem of await collection.mediaItems()) ids.push(Number(mediaItem.id));
-	await enqueueTrackIds(ids, source, options);
+	const refs: TrackRef[] = [];
+	for await (const mediaItem of await collection.mediaItems()) {
+		const id = Number(mediaItem.id);
+		if (!Number.isFinite(id)) continue;
+		refs.push({ id, type: mediaItem.contentType === "video" ? "video" : "track" });
+	}
+	await enqueueTracks(refs, source, options);
 };
 
 export const enqueueAlbumById = async (albumId: number, options: EnqueueOptions = {}): Promise<void> => {
@@ -233,7 +241,7 @@ export const enqueueTarget = async (input: string): Promise<string> => {
 
 	switch (target.kind) {
 		case "track": {
-			const result = await enqueueTrackIds([Number(target.id)], "Track");
+			const result = await enqueueTracks([{ id: Number(target.id) }], "Track");
 			return result.added > 0 ? "Added 1 track" : "Track already queued";
 		}
 		case "album":
@@ -261,7 +269,7 @@ export const openArtistPicker = async (artistId: number, name?: string): Promise
 
 	const resolvedName = name ?? (await artistName(artistId, tracer));
 	const result = await resolveArtistAlbums(artistId, tracer);
-	tracer?.msg.log(`TiDLoad: artist ${artistId} (${resolvedName}) — ${result.albums.length} albums via ${result.via}`);
+	tracer?.msg.log(`TiDLoad: artist ${artistId} (${resolvedName}) — ${result.albums.length} albums via ${result.detail}`);
 
 	state.update({
 		artistPicker: {
@@ -270,7 +278,7 @@ export const openArtistPicker = async (artistId: number, name?: string): Promise
 			albums: result.albums,
 			selected: result.albums.map((album) => album.id),
 			loading: false,
-			error: result.albums.length === 0 ? `No albums found (tried ${result.via})` : undefined,
+			error: result.albums.length === 0 ? `No albums found. Sources tried — ${result.detail}` : undefined,
 		},
 	});
 };
@@ -302,15 +310,15 @@ export const enqueueSelectedArtistAlbums = async (options: EnqueueOptions = {}):
 	const albums = picker.albums.filter((album) => picker.selected.includes(album.id));
 	state.update({ resolving: { label: source, done: 0, total: albums.length } });
 
-	const idLists = await mapWithConcurrency(albums, 3, async (album, index) => {
-		const ids = await trackIdsForAlbum(album.id);
+	const refLists = await mapWithConcurrency(albums, 3, async (album, index) => {
+		const refs = await trackRefsForAlbum(album.id);
 		state.update({ resolving: { label: source, done: index + 1, total: albums.length } });
-		return ids;
+		return refs;
 	});
-	const ids = idLists.flat();
+	const refs = refLists.flat();
 	state.update({ resolving: undefined });
 
-	await enqueueTrackIds(ids, source, { ...options, batchSize: ids.length });
+	await enqueueTracks(refs, source, { ...options, batchSize: refs.length });
 };
 
 // #endregion
@@ -421,7 +429,7 @@ const processItem = async (item: QueueItem): Promise<void> => {
 
 	let poller: Poller | undefined;
 	try {
-		const mediaItem = await getMediaItem(item.trackId);
+		const mediaItem = await getMediaItem(item.trackId, item.type);
 		if (mediaItem === undefined) throw new Error("Track is no longer available");
 
 		let target = mediaItem;
@@ -557,7 +565,7 @@ export const clearHistory = async (): Promise<void> => {
 };
 
 export const downloadAgain = async (entry: HistoryEntry): Promise<void> => {
-	await enqueueTrackIds([entry.trackId], "History", { requeueFinished: true, start: true });
+	await enqueueTracks([{ id: entry.trackId }], "History", { requeueFinished: true, start: true });
 };
 
 // #endregion
