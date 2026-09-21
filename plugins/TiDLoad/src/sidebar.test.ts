@@ -39,6 +39,20 @@ import { SIDEBAR_ITEM_SELECTOR, buildSidebarItem, installSidebarEntry, refreshSi
 
 const trace = { msg: { log: vi.fn(), warn: vi.fn(), err: vi.fn() } } as never;
 
+/**
+ * Unload sets for everything a test installs. Each install registers observers and debounce timers, so
+ * they must be drained before jsdom is torn down — otherwise a timer fires with no `document` and vitest
+ * reports it as an uncaught exception.
+ */
+const pendingUnloads: (() => void)[] = [];
+const trackedUnloads = (): Set<() => void> => {
+	const set = new Set<() => void>();
+	pendingUnloads.push(() => {
+		for (const unload of set) unload();
+	});
+	return set;
+};
+
 const SIDEBAR_HTML = `
 <nav id="sidebar">
 	<div data-test="sidebar-music" class="navItem"><a href="/music"><svg viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg><span>Music</span></a></div>
@@ -66,6 +80,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	for (const unload of pendingUnloads.splice(0)) unload();
 	document.body.innerHTML = "";
 	vi.restoreAllMocks();
 });
@@ -106,7 +121,7 @@ describe("buildSidebarItem", () => {
 
 describe("installSidebarEntry", () => {
 	it("inserts the entry after the last primary nav item", () => {
-		installSidebarEntry(new Set(), trace, mocks.openPage);
+		installSidebarEntry(trackedUnloads(), trace, mocks.openPage);
 
 		const inserted = item();
 		expect(inserted).not.toBeNull();
@@ -115,7 +130,7 @@ describe("installSidebarEntry", () => {
 	});
 
 	it("shows the queue depth in the badge and switches to a percentage while downloading", () => {
-		installSidebarEntry(new Set(), trace, mocks.openPage);
+		installSidebarEntry(trackedUnloads(), trace, mocks.openPage);
 		const badge = document.querySelector<HTMLElement>("[data-tidload-badge]")!;
 		expect(badge.hidden).toBe(true);
 
@@ -133,7 +148,7 @@ describe("installSidebarEntry", () => {
 	});
 
 	it("re-injects the entry after TIDAL re-renders the sidebar", async () => {
-		installSidebarEntry(new Set(), trace, mocks.openPage);
+		installSidebarEntry(trackedUnloads(), trace, mocks.openPage);
 		item()!.remove();
 		expect(item()).toBeNull();
 
@@ -142,19 +157,19 @@ describe("installSidebarEntry", () => {
 	});
 
 	it("does not duplicate itself when the sidebar churns", async () => {
-		installSidebarEntry(new Set(), trace, mocks.openPage);
+		installSidebarEntry(trackedUnloads(), trace, mocks.openPage);
 		await flushObserver();
 		expect(document.querySelectorAll(SIDEBAR_ITEM_SELECTOR)).toHaveLength(1);
 	});
 
 	it("stays out of the way when the setting is off", async () => {
 		(settings as { sidebarEntry: boolean }).sidebarEntry = false;
-		installSidebarEntry(new Set(), trace, mocks.openPage);
+		installSidebarEntry(trackedUnloads(), trace, mocks.openPage);
 		expect(item()).toBeNull();
 	});
 
 	it("removes the entry when the setting is switched off and keeps it removed", async () => {
-		installSidebarEntry(new Set(), trace, mocks.openPage);
+		installSidebarEntry(trackedUnloads(), trace, mocks.openPage);
 		expect(item()).not.toBeNull();
 
 		(settings as { sidebarEntry: boolean }).sidebarEntry = false;
@@ -166,19 +181,19 @@ describe("installSidebarEntry", () => {
 
 	it("marks the entry as current while TiDLoad's page is open", () => {
 		window.history.replaceState({}, "", "/?TiDLoad");
-		installSidebarEntry(new Set(), trace, mocks.openPage);
+		installSidebarEntry(trackedUnloads(), trace, mocks.openPage);
 		expect(item()!.getAttribute("aria-current")).toBe("page");
 
 		window.history.replaceState({}, "", "/");
 		window.dispatchEvent(new Event("popstate"));
 		refreshSidebarEntry();
-		installSidebarEntry(new Set(), trace, mocks.openPage);
+		installSidebarEntry(trackedUnloads(), trace, mocks.openPage);
 		expect(item()!.hasAttribute("aria-current")).toBe(false);
 	});
 
 	it("waits for the sidebar instead of throwing when it is not rendered yet", () => {
 		document.body.innerHTML = "";
-		expect(() => installSidebarEntry(new Set(), trace, mocks.openPage)).not.toThrow();
+		expect(() => installSidebarEntry(trackedUnloads(), trace, mocks.openPage)).not.toThrow();
 		expect(item()).toBeNull();
 	});
 
@@ -189,7 +204,7 @@ describe("installSidebarEntry", () => {
 				<div data-test="sidebar-renamed-thing"><a href="/x"><svg viewBox="0 0 24 24"><path d="M0 0h1v1H0z"/></svg><span>Renamed</span></a></div>
 			</nav>`;
 
-		installSidebarEntry(new Set(), trace, mocks.openPage);
+		installSidebarEntry(trackedUnloads(), trace, mocks.openPage);
 		const inserted = item();
 		expect(inserted).not.toBeNull();
 		// Inserted after the only usable row, never after the collapse toggle
@@ -204,7 +219,7 @@ describe("installSidebarEntry", () => {
 				<div data-test="sidebar-expand"><span>»</span></div>
 			</nav>`;
 
-		installSidebarEntry(new Set(), trace, mocks.openPage);
+		installSidebarEntry(trackedUnloads(), trace, mocks.openPage);
 		expect(item()).toBeNull();
 	});
 });

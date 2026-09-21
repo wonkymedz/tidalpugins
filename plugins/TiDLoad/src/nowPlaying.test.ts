@@ -29,6 +29,20 @@ import { NOW_BUTTON_SELECTOR, findNowPlayingAnchor, installNowPlayingButton, rea
 
 const trace = { msg: { log: vi.fn(), warn: vi.fn(), err: vi.fn() } } as never;
 
+/**
+ * Unload sets for everything a test installs. Each install registers observers and debounce timers, so
+ * they must be drained before jsdom is torn down — otherwise a timer fires with no `document` and vitest
+ * reports it as an uncaught exception.
+ */
+const pendingUnloads: (() => void)[] = [];
+const trackedUnloads = (): Set<() => void> => {
+	const set = new Set<() => void>();
+	pendingUnloads.push(() => {
+		for (const unload of set) unload();
+	});
+	return set;
+};
+
 const FOOTER_HTML = `
 <div id="app">
 	<div id="content">Whatever is on screen</div>
@@ -57,6 +71,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	for (const unload of pendingUnloads.splice(0)) unload();
 	document.body.innerHTML = "";
 	vi.restoreAllMocks();
 });
@@ -118,7 +133,7 @@ describe("findNowPlayingAnchor", () => {
 
 describe("installNowPlayingButton", () => {
 	it("injects an icon button next to the favourite button", () => {
-		installNowPlayingButton(new Set(), trace, () => {});
+		installNowPlayingButton(trackedUnloads(), trace, () => {});
 
 		const injected = button();
 		expect(injected).not.toBeNull();
@@ -130,7 +145,7 @@ describe("installNowPlayingButton", () => {
 
 	it("downloads the playing track when clicked", () => {
 		const onDownload = vi.fn();
-		installNowPlayingButton(new Set(), trace, onDownload);
+		installNowPlayingButton(trackedUnloads(), trace, onDownload);
 
 		const event = new MouseEvent("click", { bubbles: true, cancelable: true });
 		button()!.dispatchEvent(event);
@@ -141,7 +156,7 @@ describe("installNowPlayingButton", () => {
 
 	it("downloads whatever is playing at click time, not at injection time", () => {
 		const onDownload = vi.fn();
-		installNowPlayingButton(new Set(), trace, onDownload);
+		installNowPlayingButton(trackedUnloads(), trace, onDownload);
 
 		setPlaying(9, "Windowlicker");
 		button()!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
@@ -150,7 +165,7 @@ describe("installNowPlayingButton", () => {
 	});
 
 	it("notes in the tooltip when the track was already downloaded", () => {
-		installNowPlayingButton(new Set(), trace, () => {});
+		installNowPlayingButton(trackedUnloads(), trace, () => {});
 		expect(button()!.getAttribute("aria-label")).not.toContain("already downloaded");
 
 		// The engine finishes the track, which nudges the button to refresh its tooltip.
@@ -162,12 +177,12 @@ describe("installNowPlayingButton", () => {
 
 	it("does not inject while nothing is playing", () => {
 		setPlaying(undefined);
-		installNowPlayingButton(new Set(), trace, () => {});
+		installNowPlayingButton(trackedUnloads(), trace, () => {});
 		expect(button()).toBeNull();
 	});
 
 	it("removes the button when playback stops", async () => {
-		installNowPlayingButton(new Set(), trace, () => {});
+		installNowPlayingButton(trackedUnloads(), trace, () => {});
 		expect(button()).not.toBeNull();
 
 		setPlaying(undefined);
@@ -177,12 +192,12 @@ describe("installNowPlayingButton", () => {
 
 	it("does not inject when the setting is off", () => {
 		(settings as { nowPlayingButton: boolean }).nowPlayingButton = false;
-		installNowPlayingButton(new Set(), trace, () => {});
+		installNowPlayingButton(trackedUnloads(), trace, () => {});
 		expect(button()).toBeNull();
 	});
 
 	it("removes the button when the setting is switched off", () => {
-		installNowPlayingButton(new Set(), trace, () => {});
+		installNowPlayingButton(trackedUnloads(), trace, () => {});
 		expect(button()).not.toBeNull();
 
 		(settings as { nowPlayingButton: boolean }).nowPlayingButton = false;
@@ -191,7 +206,7 @@ describe("installNowPlayingButton", () => {
 	});
 
 	it("re-injects after TIDAL re-renders the player bar", async () => {
-		installNowPlayingButton(new Set(), trace, () => {});
+		installNowPlayingButton(trackedUnloads(), trace, () => {});
 		button()!.remove();
 		expect(button()).toBeNull();
 
