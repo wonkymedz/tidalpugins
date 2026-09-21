@@ -24,7 +24,7 @@ const meta = (trackId: number, title = `Track ${trackId}`): TrackMeta => ({
 	album: "Album",
 	trackNumber: trackId,
 	discNumber: 1,
-	quality: 3,
+	quality: "HI_RES_LOSSLESS",
 	qualityName: "HiRes",
 });
 

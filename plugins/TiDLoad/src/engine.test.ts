@@ -51,6 +51,22 @@ const settle = async (): Promise<void> => {
 	);
 };
 
+/**
+ * Waits until nothing is downloading.
+ *
+ * Needed between tests: a track that is mid-download keeps running after `pause()`, and its completion
+ * patch would otherwise land on the next test's item for the same track id.
+ */
+const quiesce = async (): Promise<void> => {
+	await vi.waitFor(
+		() => {
+			expect(engine.get().running).toBe(false);
+			expect(engine.get().items.some((item) => item.status === "active")).toBe(false);
+		},
+		{ timeout: 5000, interval: 20 },
+	);
+};
+
 const byTrack = (trackId: number): QueueItem | undefined => engine.get().items.find((item) => item.trackId === trackId);
 
 beforeEach(async () => {
@@ -69,9 +85,11 @@ beforeEach(async () => {
 	settings.skipExisting = true;
 	settings.useRealMAX = false;
 	settings.pathFormat = "{artist}/{album}/{trackNumber} - {title}";
+	settings.downloadQuality = "HI_RES_LOSSLESS";
 
 	await init({ trace, unloads: new Set(), openPage: () => {} });
 	await clearQueue();
+	await quiesce();
 });
 
 describe("engine downloads", () => {
@@ -221,8 +239,70 @@ describe("engine downloads", () => {
 		pause();
 
 		// The in-flight track finishes; whatever is still queued stays queued.
-		await vi.waitFor(() => expect(byTrack(1)?.status).not.toBe("pending"), { timeout: 5000, interval: 20 });
+		await vi.waitFor(() => expect(byTrack(1)?.status).toBe("done"), { timeout: 5000, interval: 20 });
 		expect(engine.get().running).toBe(false);
 		expect(byTrack(2)?.status).toBe("pending");
+		await quiesce();
+	});
+});
+
+describe("download quality", () => {
+	it("downloads at the selected quality", async () => {
+		settings.downloadQuality = "HIGH";
+
+		const album = await Album.fromId(10);
+		await enqueueCollection(album!, { start: true });
+		await settle();
+
+		expect(lunaStub.fileExtensionCalls.map((call) => call.quality)).toEqual(["HIGH", "HIGH"]);
+		expect(lunaStub.downloads.every((entry) => entry.quality === "HIGH")).toBe(true);
+		expect(byTrack(1)).toMatchObject({ status: "done", qualityName: "Low" });
+	});
+
+	it("still downloads when the stored quality is unusable (regression: the dropdown wrote NaN)", async () => {
+		// Exactly what v1.0.0 persisted when a non-default quality was picked.
+		settings.downloadQuality = Number.NaN as never;
+
+		const album = await Album.fromId(10);
+		await enqueueCollection(album!, { start: true });
+		await settle();
+
+		expect(lunaStub.fileExtensionCalls.every((call) => call.quality === "HI_RES_LOSSLESS")).toBe(true);
+		expect(lunaStub.downloads.every((entry) => entry.quality === "HI_RES_LOSSLESS")).toBe(true);
+		expect(byTrack(1)?.status).toBe("done");
+		expect(byTrack(2)?.status).toBe("done");
+	});
+
+	it("falls back to the default quality when the track has no stream at the chosen one", async () => {
+		lunaStub.tracks.get(1)!.failQualities = ["LOW"];
+		lunaStub.tracks.get(2)!.failQualities = ["LOW"];
+		settings.downloadQuality = "LOW";
+
+		const album = await Album.fromId(10);
+		await enqueueCollection(album!, { start: true });
+		await settle();
+
+		// Tried LOW first, then retried at the client default and downloaded there.
+		expect(lunaStub.fileExtensionCalls.filter((call) => call.id === 1).map((call) => call.quality)).toEqual([
+			"LOW",
+			"HI_RES_LOSSLESS",
+		]);
+		expect(lunaStub.downloads.every((entry) => entry.quality === "HI_RES_LOSSLESS")).toBe(true);
+		expect(byTrack(1)).toMatchObject({ status: "done", qualityName: "HiRes" });
+	});
+
+	it("reports a precise error when no quality has a stream", async () => {
+		lunaStub.tracks.get(1)!.failQualities = ["LOW", "HI_RES_LOSSLESS"];
+		settings.downloadQuality = "LOW";
+
+		const album = await Album.fromId(10);
+		await enqueueCollection(album!, { start: true });
+		await settle();
+
+		expect(byTrack(1)?.status).toBe("failed");
+		expect(byTrack(1)?.error).toContain('No stream available for "First"');
+		expect(byTrack(1)?.error).toContain("Lowest");
+		// The rest of the album is unaffected.
+		expect(byTrack(2)).toMatchObject({ status: "done" });
 	});
 });

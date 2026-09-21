@@ -5,8 +5,9 @@
  * tested outside the TIDAL client. Only `import type` is allowed here and in `core/*`.
  */
 
-/** Either a redux.AudioQuality value or one produced by a @luna/lib Quality. Kept as a number so core stays dependency free. */
-export type AudioQuality = number;
+/** A TIDAL audio quality value — a string like "HIGH", never a number. See core/quality.ts. */
+import type { AudioQuality } from "./core/quality";
+export type { AudioQuality };
 
 export type DownloadStatus = "pending" | "active" | "done" | "failed" | "skipped";
 
@@ -44,6 +45,7 @@ export type TrackMeta = {
 	year?: string;
 	duration?: number;
 	coverUrl?: string;
+	/** TIDAL audio quality value of the track as queued (a string such as "HI_RES_LOSSLESS"). */
 	quality: AudioQuality;
 	qualityName: string;
 };

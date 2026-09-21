@@ -108,7 +108,7 @@ describe("tagsFromMeta", () => {
 			album: "SAW 85-92",
 			trackNumber: 1,
 			discNumber: 1,
-			quality: 3,
+			quality: "HI_RES_LOSSLESS",
 			qualityName: "HiRes",
 		});
 		expect(tags).toMatchObject({ title: "Xtal", artist: "Aphex Twin", album: "SAW 85-92", trackNumber: 1 });

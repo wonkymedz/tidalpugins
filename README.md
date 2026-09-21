@@ -67,7 +67,7 @@ Skipped entries are labelled in the list: **Already on disk** (filesystem found 
 
 | Setting | What it does |
 | --- | --- |
-| Download quality | Requested audio quality (MQA is filtered out). |
+| Download quality | Lowest → HiRes. Values are TIDAL's own strings (`LOW`, `HIGH`, `LOSSLESS`, `HI_RES_LOSSLESS`); if a track has no stream at the chosen quality TiDLoad falls back to HiRes and records that in the list. |
 | Use RealMAX | Searches other releases by ISRC for a higher quality copy of each track. |
 | Save location | Ask every time, or always use the default folder. |
 | File and folder template | e.g. `{artist}/{album}/{trackNumber} - {title}` — `/` creates folders; a live preview and preset buttons are shown. |
@@ -84,6 +84,10 @@ Skipped entries are labelled in the list: **Already on disk** (filesystem found 
 Available template tags: `title`, `trackNumber`, `discNumber`, `bpm`, `year`, `date`, `copyright`, `REPLAYGAIN_TRACK_GAIN`, `REPLAYGAIN_TRACK_PEAK`, `comment`, `isrc`, `upc`, `musicbrainz_trackid`, `musicbrainz_albumid`, `artist`, `album`, `albumArtist`, `genres`, `organization`, `totalTracks`, `lyrics`.
 
 Tags with no value are dropped from the path (a single with no album does not create an `Unknown Album` folder), and every substituted value is sanitised so a tag can never escape the destination folder.
+
+### Download quality
+
+The setting stores one of TIDAL's audio quality strings — `LOW` (TidaLuna "Lowest"), `HIGH` ("Low"), `LOSSLESS` ("High") or `HI_RES_LOSSLESS` ("HiRes") — exactly as the client's `Quality.audioQuality` does; anything else is rejected and the previous value kept (up to v1.0.0 the dropdown wrote `NaN` here, which made TIDAL answer 404 and surfaced as *"Track … is not available"* for every download). If a track has no stream at the chosen quality, TiDLoad retries once at HiRes, keeps the download going and records the quality actually used on the entry.
 
 ## Limitations (TidaLuna client API)
 

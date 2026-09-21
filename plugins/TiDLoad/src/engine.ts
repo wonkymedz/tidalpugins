@@ -29,6 +29,12 @@ import {
 import { createObservable } from "./core/store";
 import { parseTidalTarget } from "./core/target";
 import { renderSegments } from "./core/template";
+import {
+	DEFAULT_AUDIO_QUALITY,
+	normaliseAudioQuality,
+	qualityLabel,
+	type AudioQuality,
+} from "./core/quality";
 import { statPaths, type DiskEntry } from "./disk.native";
 import { toast, removeToasts } from "./notify";
 import {
@@ -542,9 +548,45 @@ const processItem = async (item: QueueItem): Promise<void> => {
 		let target = mediaItem;
 		if (settings.useRealMAX) target = (await mediaItem.max()) ?? mediaItem;
 
-		const quality = settings.downloadQuality;
+		const requested = normaliseAudioQuality(settings.downloadQuality, DEFAULT_AUDIO_QUALITY);
 		const { tags } = await target.flacTags();
-		const ext = (await target.fileExtension(quality)) ?? "flac";
+
+		/**
+		 * Ask for the chosen quality, falling back once to the client's default.
+		 *
+		 * TIDAL answers 404 for a quality a track has no stream for, which the client reports as
+		 * "Track <id> is not available" — indistinguishable from a missing track. Falling back keeps the
+		 * download working, and the note below records what actually happened.
+		 */
+		let quality: AudioQuality = requested;
+		let ext: string | undefined;
+		let playbackError: unknown;
+		try {
+			ext = await target.fileExtension(quality);
+		} catch (err) {
+			playbackError = err;
+		}
+
+		if (ext === undefined && quality !== DEFAULT_AUDIO_QUALITY) {
+			quality = DEFAULT_AUDIO_QUALITY;
+			try {
+				ext = await target.fileExtension(quality);
+				playbackError = undefined;
+				trace()?.msg.warn(
+					`TiDLoad: "${item.title}" has no ${qualityLabel(requested)} stream, using ${qualityLabel(quality)} instead`,
+				);
+			} catch (err) {
+				playbackError = err;
+			}
+		}
+
+		if (ext === undefined && playbackError !== undefined) {
+			throw new Error(`No stream available for "${item.title}" at ${qualityLabel(requested)}`);
+		}
+		// Unknown manifest type: keep the old behaviour rather than failing the track.
+		ext ??= "flac";
+
+		const usedFallbackQuality = quality !== requested;
 		const segments = renderSegments(settings.pathFormat, tags, { ext, padTrackNumbers: settings.padTrackNumbers });
 
 		const destination = await resolveDestination(item, segments, ext);
@@ -568,6 +610,7 @@ const processItem = async (item: QueueItem): Promise<void> => {
 					status: "skipped",
 					skipReason: existing.reason,
 					existingSize: existing.size,
+					qualityName: qualityLabel(quality),
 					finishedAt: Date.now(),
 					speed: 0,
 					path: fullPath,
@@ -591,10 +634,12 @@ const processItem = async (item: QueueItem): Promise<void> => {
 
 		// The download resolved, so the file is on disk either way. When no bytes were reported the client
 		// found the file already there (or it finished between polls) — worth noting, but it is not a skip.
+		// qualityName records the quality actually used (it differs from the track's own when we fell back).
 		updateItems((items) =>
 			patchItem(items, item.trackId, {
 				status: "done",
 				skipReason: sawBytes ? undefined : "unchanged",
+				qualityName: qualityLabel(quality),
 				finishedAt: Date.now(),
 				speed: 0,
 				path: fullPath,
@@ -602,7 +647,9 @@ const processItem = async (item: QueueItem): Promise<void> => {
 		);
 		rememberDownloaded({ ...item, path: fullPath });
 		trace()?.msg.log(
-			`TiDLoad: ${sawBytes ? "downloaded" : "already present"}: ${item.artist} — ${item.title}`,
+			`TiDLoad: ${sawBytes ? "downloaded" : "already present"} at ${qualityLabel(quality)}${
+				usedFallbackQuality ? ` (requested ${qualityLabel(requested)})` : ""
+			}: ${item.artist} — ${item.title}`,
 		);
 	} catch (err) {
 		poller?.stop();

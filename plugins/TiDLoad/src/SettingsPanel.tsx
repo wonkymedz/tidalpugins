@@ -13,16 +13,16 @@ import { LunaButtonSetting, LunaNumberSetting, LunaSelectItem, LunaSelectSetting
 
 import { DEFAULT_PATH_FORMAT, SAMPLE_TAGS, TEMPLATE_PRESETS, renderTemplate } from "./core/template";
 import { platformSeparator } from "./core/paths";
+import { qualityOptions } from "./core/quality";
 import { clearQueue, downloadedCount, engine, forgetDownloaded } from "./engine";
-import { clearPersistedItems, settings } from "./settings";
+import { clearPersistedItems, setDownloadQuality, settings } from "./settings";
 import { refreshNowPlayingButton } from "./nowPlaying";
 import { refreshPlayQueueButton } from "./playQueue";
 import { refreshSidebarEntry } from "./sidebar";
 import { toast } from "./notify";
 
-const QUALITY_OPTIONS = Object.values(Quality.lookups.audioQuality).filter(
-	(quality): quality is Quality => typeof quality !== "string" && quality.audioQuality !== Quality.MQA.audioQuality,
-);
+/** Offered tiers, highest first. Values are TIDAL's own audio quality strings (see core/quality.ts). */
+const QUALITY_OPTIONS = qualityOptions();
 
 const openFolderDialog = async (): Promise<string | undefined> => {
 	const { canceled, filePaths } = await showOpenDialog({
@@ -34,7 +34,7 @@ const openFolderDialog = async (): Promise<string | undefined> => {
 };
 
 export const Settings = () => {
-	const [downloadQuality, setDownloadQuality] = React.useState(settings.downloadQuality);
+	const [downloadQuality, setDownloadQualityState] = React.useState(settings.downloadQuality);
 	const [saveMode, setSaveMode] = React.useState(settings.saveMode);
 	const [defaultPath, setDefaultPath] = React.useState(settings.defaultPath);
 	const [pathFormat, setPathFormat] = React.useState(settings.pathFormat);
@@ -68,12 +68,18 @@ export const Settings = () => {
 		<LunaSettings>
 			<LunaSelectSetting
 				title="Download quality"
-				desc="Tracks are requested at this quality; RealMAX can upgrade it per track."
+				desc="Tracks are requested at this quality; RealMAX can upgrade it per track. If a track has no stream at the chosen quality, TiDLoad falls back to HiRes and says so in the list."
 				value={downloadQuality}
-				onChange={(event) => setDownloadQuality((settings.downloadQuality = Number(event.target.value)))}
+				onChange={(event) => {
+					const result = setDownloadQuality(event.target.value);
+					setDownloadQualityState(result.quality);
+					if (!result.accepted) {
+						toast(`TiDLoad: "${event.target.value}" is not a quality TIDAL accepts — kept ${result.quality}`, { kind: "error" });
+					}
+				}}
 			>
-				{QUALITY_OPTIONS.map((quality) => (
-					<LunaSelectItem key={quality.name} value={quality.audioQuality} children={quality.name} />
+				{QUALITY_OPTIONS.map((option) => (
+					<LunaSelectItem key={option.value} value={option.value} children={option.description} />
 				))}
 			</LunaSelectSetting>
 

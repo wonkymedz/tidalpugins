@@ -9,6 +9,7 @@
 import { ReactiveStore } from "@luna/core";
 import { Quality } from "@luna/lib";
 
+import { DEFAULT_AUDIO_QUALITY, isAudioQuality, normaliseAudioQuality, type AudioQuality } from "./core/quality";
 import { toPersistedItems } from "./core/queue";
 import { DEFAULT_PATH_FORMAT } from "./core/template";
 import type { QueueItem, Settings } from "./types";
@@ -32,7 +33,9 @@ export const DEFAULT_SETTINGS: Settings = {
 export const settings = await ReactiveStore.getPluginStorage<Settings>("TiDLoad", { ...DEFAULT_SETTINGS });
 
 // Repair anything stale, hand-edited or written by an older version.
-if (Quality.fromAudioQuality(settings.downloadQuality) === undefined) settings.downloadQuality = DEFAULT_SETTINGS.downloadQuality;
+// NOTE: the download quality is a *string* ("HIGH", "HI_RES_LOSSLESS", …). Versions up to 1.0.0 stored
+// NaN here when the dropdown was used, which made TIDAL answer 404 for every playback request.
+settings.downloadQuality = normaliseAudioQuality(settings.downloadQuality, DEFAULT_SETTINGS.downloadQuality);
 if (typeof settings.pathFormat !== "string" || settings.pathFormat.trim() === "") settings.pathFormat = DEFAULT_PATH_FORMAT;
 if (typeof settings.historyLimit !== "number" || settings.historyLimit < 0) settings.historyLimit = DEFAULT_SETTINGS.historyLimit;
 if (settings.saveMode !== "default" && settings.saveMode !== "ask") settings.saveMode = DEFAULT_SETTINGS.saveMode;
@@ -46,6 +49,19 @@ if (settings.restoreQueue !== "paused" && settings.restoreQueue !== "auto" && se
 }
 
 const pluginStorage = ReactiveStore.getStore("@luna/pluginStorage");
+
+/**
+ * Writes the download quality, refusing anything the client would choke on.
+ *
+ * `accepted` is false when the caller passed a value TIDAL does not understand (in which case the
+ * previous/default quality is kept and the UI can say so) — this is the guard that stops a bad setting
+ * from turning into "cannot find the track" for every download.
+ */
+export const setDownloadQuality = (value: unknown): { quality: AudioQuality; accepted: boolean } => {
+	const accepted = isAudioQuality(value);
+	settings.downloadQuality = normaliseAudioQuality(value, DEFAULT_SETTINGS.downloadQuality);
+	return { quality: settings.downloadQuality, accepted };
+};
 
 /** Shape written by versions that kept a separate history list. */
 type LegacyHistoryEntry = {
@@ -99,7 +115,8 @@ const legacyEntryToItem = (entry: LegacyHistoryEntry): QueueItem => ({
 	artist: entry.artist ?? "Unknown Artist",
 	albumArtist: entry.artist ?? "Unknown Artist",
 	album: entry.album ?? "",
-	quality: 0,
+	// Old history entries did not record a quality value, only its display name.
+	quality: DEFAULT_AUDIO_QUALITY,
 	qualityName: entry.qualityName ?? "Unknown",
 	source: "Earlier session",
 	batch: `history#${entry.at}`,

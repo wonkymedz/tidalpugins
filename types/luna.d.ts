@@ -106,7 +106,8 @@ declare module "@luna/lib" {
 		/** Tracks/albums/artists use numeric ids, playlists use UUIDs. */
 		type ItemId = number | string;
 		type ContentType = "track" | "video";
-		type AudioQuality = number;
+		/** TIDAL's audio quality values — these are strings, not numbers (see TidaLuna's Quality class). */
+		type AudioQuality = "LOW" | "HIGH" | "LOSSLESS" | "HI_RES" | "HI_RES_LOSSLESS";
 		type ArtistRef = { id: number; name: string };
 		type AlbumRef = {
 			id: number;

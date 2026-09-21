@@ -9,7 +9,7 @@
  */
 
 import type { Tracer } from "@luna/core";
-import { Album, MediaItem, MediaItems, Playlist, TidalApi, redux, type MediaCollection } from "@luna/lib";
+import { Album, MediaItem, MediaItems, Playlist, Quality, TidalApi, redux, type MediaCollection } from "@luna/lib";
 
 import {
 	albumsForArtistInRecords,
@@ -52,7 +52,7 @@ export const resolveTrackMeta = async (mediaItem: MediaItem): Promise<TrackMeta>
 		year: typeof releaseDate === "string" && releaseDate.length >= 4 ? releaseDate.slice(0, 4) : undefined,
 		duration: track.duration,
 		coverUrl: await mediaItem.coverUrl({ res: "160" }).catch(() => undefined),
-		quality: quality?.audioQuality ?? 0,
+		quality: quality?.audioQuality ?? Quality.Lowest.audioQuality,
 		qualityName: quality?.name ?? "Unknown",
 	};
 };

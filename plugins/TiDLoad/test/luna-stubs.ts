@@ -21,13 +21,15 @@ export type StubTrack = {
 	trackNumber?: number;
 	volumeNumber?: number;
 	qualityName?: string;
-	audioQuality?: number;
+	audioQuality?: StubAudioQuality;
 	behaviour?: StubTrackBehaviour;
 	error?: string;
 	/** Progress samples reported by `downloadProgress()` while downloading. */
 	progress?: { downloaded: number; total: number }[];
 	/** How long `download()` takes — long enough for the progress poller to observe samples. */
 	downloadDelayMs?: number;
+	/** Qualities this track has no stream for: `fileExtension()` throws like the real client does. */
+	failQualities?: string[];
 };
 
 /**
@@ -35,10 +37,12 @@ export type StubTrack = {
  */
 export const lunaStub = {
 	tracks: new Map<number, StubTrack>(),
-	downloads: [] as { id: number; path: string | string[]; quality: number }[],
+	downloads: [] as { id: number; path: string | string[]; quality: string | undefined }[],
 	saveDialog: { canceled: false, filePath: "C:/TiDLoad/Track.flac" },
 	openDialog: { canceled: false, filePaths: ["C:/TiDLoad"] },
 	storage: new Map<string, unknown>(),
+	/** Every `fileExtension(quality)` call, so tests can assert which quality was requested. */
+	fileExtensionCalls: [] as { id: number; quality: string | undefined }[],
 	/** Called after a stub download finishes, so tests can pretend the file now exists. */
 	onDownload: undefined as ((path: string, trackId: number) => void) | undefined,
 	/** Fake redux state (play queue, playback context, content store) that tests can mutate. */
@@ -63,6 +67,7 @@ export const lunaStub = {
 		this.openDialog = { canceled: false, filePaths: ["C:/TiDLoad"] };
 		this.storage.clear();
 		progressCursor.clear();
+		this.fileExtensionCalls.length = 0;
 		this.state.content.albums = {};
 		this.state.content.mediaItems = {};
 		this.state.playbackControls.playbackContext = { actualProductId: undefined, actualVideoQuality: null };
@@ -129,36 +134,45 @@ export const ftch = { json: async () => ({}), text: async () => "" };
 
 // #region @luna/lib
 
+export type StubAudioQuality = "LOW" | "HIGH" | "LOSSLESS" | "HI_RES" | "HI_RES_LOSSLESS";
+
 export class Quality {
 	constructor(
 		public readonly name: string,
-		public readonly audioQuality: number,
+		/** Mirrors the client: a string like "HIGH", never a number. */
+		public readonly audioQuality: StubAudioQuality,
 	) {}
-	static readonly Max = new Quality("Max", 3);
-	static readonly HiRes = new Quality("HiRes", 2);
-	static readonly High = new Quality("High", 1);
-	static readonly Low = new Quality("Low", 0);
-	static readonly Lowest = new Quality("Lowest", 0);
-	static readonly MQA = new Quality("MQA", -1);
-	static readonly Atmos = new Quality("Atmos", 4);
-	static readonly Sony630 = new Quality("Sony 360", 5);
+	static readonly HiRes = new Quality("HiRes", "HI_RES_LOSSLESS");
+	static readonly MQA = new Quality("MQA", "HI_RES");
+	static readonly High = new Quality("High", "LOSSLESS");
+	static readonly Low = new Quality("Low", "HIGH");
+	static readonly Lowest = new Quality("Lowest", "LOW");
+	/** The highest possible quality available — the client aliases this to HiRes. */
+	static readonly Max = Quality.HiRes;
+	static readonly Atmos = Quality.HiRes;
+	static readonly Sony630 = Quality.HiRes;
 	static readonly lookups = {
+		/** Value → Quality, exactly like the client's map (the reverse entries are not needed here). */
 		audioQuality: {
-			LOW: new Quality("Low", 0),
-			HIGH: new Quality("High", 1),
-			LOSSLESS: new Quality("HiRes", 2),
-			HIRES_LOSSLESS: new Quality("Max", 3),
-			MQA: new Quality("MQA", -1),
-		} as Record<string, Quality | string>,
+			HI_RES_LOSSLESS: Quality.HiRes,
+			HI_RES: Quality.MQA,
+			LOSSLESS: Quality.High,
+			HIGH: Quality.Low,
+			LOW: Quality.Lowest,
+		} as Record<string, Quality>,
 	};
-	static fromAudioQuality(quality?: number): Quality | undefined {
-		return [Quality.Low, Quality.High, Quality.HiRes, Quality.Max].find((entry) => entry.audioQuality === quality);
+	static fromAudioQuality(quality?: string): Quality | undefined {
+		return quality === undefined ? undefined : Quality.lookups.audioQuality[quality];
 	}
 	static fromMetaTags(tags?: string[]): Quality[] {
-		return (tags ?? []).includes("HIRES_LOSSLESS") ? [Quality.Max] : [];
+		return (tags ?? []).includes("HIRES_LOSSLESS") ? [Quality.HiRes] : [];
 	}
 	static max(...qualities: Quality[]): Quality {
-		return qualities.reduce((best, next) => (next.audioQuality > best.audioQuality ? next : best), Quality.Lowest);
+		const order: StubAudioQuality[] = ["LOW", "HIGH", "LOSSLESS", "HI_RES", "HI_RES_LOSSLESS"];
+		return qualities.reduce(
+			(best, next) => (order.indexOf(next.audioQuality) > order.indexOf(best.audioQuality) ? next : best),
+			Quality.Lowest,
+		);
 	}
 }
 
@@ -184,7 +198,7 @@ export class MediaItem {
 			duration: track.duration ?? 180,
 			trackNumber: track.trackNumber ?? 1,
 			volumeNumber: track.volumeNumber ?? 1,
-			audioQuality: track.audioQuality ?? 3,
+			audioQuality: track.audioQuality ?? "HI_RES_LOSSLESS",
 			releaseDate: "2020-01-01",
 			artist: { id: 1, name: track.artist },
 			artists: [{ id: 1, name: track.artist }],
@@ -227,7 +241,12 @@ export class MediaItem {
 			coverUrl: undefined,
 		};
 	}
-	async fileExtension() {
+	async fileExtension(quality?: string) {
+		lunaStub.fileExtensionCalls.push({ id: this.id, quality });
+		const track = lunaStub.tracks.get(this.id);
+		// Mirrors the client: TIDAL answers 404 for a quality the track has no stream for, and the lib
+		// turns that into "Track <id> is not available".
+		if (quality !== undefined && track?.failQualities?.includes(quality)) throw new Error(`Track ${this.id} is not available`);
 		return "flac";
 	}
 	async downloadProgress() {
@@ -240,7 +259,7 @@ export class MediaItem {
 		progressCursor.set(this.id, cursor + 1);
 		return samples[cursor];
 	}
-	async download(path: string | string[], quality = 0) {
+	async download(path: string | string[], quality?: string) {
 		const track = lunaStub.tracks.get(this.id);
 		lunaStub.downloads.push({ id: this.id, path, quality });
 		if (track?.behaviour === "fail") throw new Error(track.error ?? "download failed");
