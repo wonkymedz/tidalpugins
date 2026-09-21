@@ -15,7 +15,8 @@
 import type { LunaUnloads, Tracer } from "@luna/core";
 import { Album, ContextMenu, MediaItem, MediaItems } from "@luna/lib";
 
-import { formatPercent, percentOf, pluralise } from "./core/format";
+import { formatBytes, pluralise } from "./core/format";
+import { progressPercent } from "./core/queue";
 import { enqueueCollection, engine, isRunning, openArtistPicker, pause } from "./engine";
 import { settings } from "./settings";
 import { artistForCollection } from "./tidal";
@@ -130,11 +131,14 @@ export const registerContextMenu = (unloads: LunaUnloads, trace: Tracer, openPag
 				return;
 			}
 
-			const percent = percentOf(item.downloaded, item.total) ?? 0;
-			primary.text = `TiDLoad: ${item.title} ${formatPercent(item.downloaded, item.total)}`;
+			const percent = progressPercent(item);
+			primary.text =
+				percent === undefined
+					? `TiDLoad: ${item.title} ${formatBytes(item.downloaded)}`
+					: `TiDLoad: ${item.title} ${percent.toFixed(0)}%`;
 			element.setAttribute("data-tidload-menu", "true");
 			element.parentElement?.classList.add("tidload-progress");
-			element.style.setProperty("--tidload-progress", `${percent}%`);
+			element.style.setProperty("--tidload-progress", `${percent ?? 0}%`);
 		}),
 	);
 

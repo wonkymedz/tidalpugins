@@ -78,20 +78,23 @@ export const toStringValue = (value: TemplateTagValue): string | undefined => {
 	return text === "" ? undefined : text;
 };
 
-const NOTHING_USEFUL = /^[_\s]+$/;
+const NOTHING_USEFUL = /^[_\s]*$/;
 
 /**
- * Characters that are illegal in a path segment become `_`.
+ * Cleans one path segment.
  *
- * Leading/trailing dots and spaces are removed *before* sanitising: `sanitize-filename` turns a
- * trailing dot or space into the replacement string, which would leave filenames like `Xtal_.flac`.
- * A segment left with nothing but separators is dropped entirely (this is what keeps `..` out).
+ * Illegal characters are **removed**, not replaced — `AC/DC` becomes `ACDC`, `Bad: Name?` becomes
+ * `Bad Name` — and leading/trailing dots and spaces are trimmed so a segment can never be `.`/`..`.
+ * (Trimming happens before *and* after sanitising: `sanitize-filename` turns a trailing dot or space into
+ * the replacement string, and a stripped value can expose new leading dots.)
  */
 export const sanitizeSegment = (segment: string, maxLength = DEFAULT_MAX_SEGMENT_LENGTH): string => {
 	const trimmed = segment.trim().replace(/^[.\s]+|[.\s]+$/g, "");
 	if (trimmed === "") return "";
 
-	const cleaned = sanitize(trimmed, { replacement: "_" }).replace(/\s{2,}/g, " ");
+	const cleaned = sanitize(trimmed, { replacement: "" })
+		.replace(/\s{2,}/g, " ")
+		.replace(/^[.\s]+|[.\s]+$/g, "");
 	if (NOTHING_USEFUL.test(cleaned)) return "";
 	if (cleaned.length <= maxLength) return cleaned;
 	return cleaned.slice(0, maxLength).replace(/[.\s]+$/g, "");

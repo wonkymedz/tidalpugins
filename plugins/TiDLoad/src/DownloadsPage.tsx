@@ -10,9 +10,9 @@ import React from "react";
 import { Page, confirm } from "@luna/ui";
 import { openExternal, clipboardWriteText } from "@luna/lib.native";
 
-import { formatBytes, formatDuration, formatEta, formatPercent, formatSpeed, percentOf, pluralise } from "./core/format";
+import { formatBytes, formatDuration, formatEta, formatSpeed, pluralise } from "./core/format";
 import { fileName, parentDirectory, toFileUrl } from "./core/paths";
-import { orderForDisplay, stats } from "./core/queue";
+import { orderForDisplay, progressPercent, stats } from "./core/queue";
 import {
 	clearCompleted,
 	clearQueue,
@@ -104,8 +104,8 @@ const reveal = async (path: string | undefined): Promise<void> => {
 	}
 };
 
-const ProgressBar = React.memo(({ downloaded, total }: { downloaded: number; total: number }) => {
-	const percent = percentOf(downloaded, total);
+const ProgressBar = React.memo(({ item }: { item: QueueItem }) => {
+	const percent = progressPercent(item);
 	return (
 		<div className="tidload-bar" role="progressbar" aria-valuenow={percent ?? 0}>
 			<div
@@ -116,6 +116,15 @@ const ProgressBar = React.memo(({ downloaded, total }: { downloaded: number; tot
 	);
 });
 
+/** "42% of 12.4 MB" normally; for a segmented stream just the bytes, because the total keeps growing. */
+const progressText = (item: QueueItem): string => {
+	const percent = progressPercent(item);
+	if (percent === undefined) {
+		return `${formatBytes(item.downloaded)} downloaded${item.segmented === true ? " · segmented stream" : ""}`;
+	}
+	return `${formatBytes(item.downloaded)} / ${formatBytes(item.total)} (${percent.toFixed(0)}%)`;
+};
+
 const StatCard = React.memo(({ label, value }: { label: string; value: React.ReactNode }) => (
 	<div className="tidload-stat">
 		<div className="tidload-stat__value">{value}</div>
@@ -124,7 +133,11 @@ const StatCard = React.memo(({ label, value }: { label: string; value: React.Rea
 ));
 
 const ActiveCard = React.memo(({ item }: { item: QueueItem }) => {
-	const eta = item.speed > 0 && item.total > item.downloaded ? (item.total - item.downloaded) / item.speed : undefined;
+	// No ETA for a segmented stream: the remaining size is unknown until the last segment arrives.
+	const eta =
+		item.segmented !== true && item.speed > 0 && item.total > item.downloaded
+			? (item.total - item.downloaded) / item.speed
+			: undefined;
 	return (
 		<div className="tidload-active">
 			{item.coverUrl !== undefined && <img className="tidload-active__cover" src={item.coverUrl} alt="" />}
@@ -133,12 +146,11 @@ const ActiveCard = React.memo(({ item }: { item: QueueItem }) => {
 				<div className="tidload-active__meta">
 					{item.artist}
 					{item.album !== "" ? ` • ${item.album}` : ""} • {item.qualityName}
+					{item.segmented === true ? " • segmented (lossy)" : ""}
 				</div>
-				<ProgressBar downloaded={item.downloaded} total={item.total} />
+				<ProgressBar item={item} />
 				<div className="tidload-active__stats">
-					<span>
-						{formatBytes(item.downloaded)} / {item.total > 0 ? formatBytes(item.total) : "?"} ({formatPercent(item.downloaded, item.total)})
-					</span>
+					<span>{progressText(item)}</span>
 					<span>{formatSpeed(item.speed)}</span>
 					<span>{eta !== undefined ? `ETA ${formatEta(eta)}` : ""}</span>
 				</div>
@@ -182,7 +194,8 @@ const QueueRow = React.memo(
 						{item.duration !== undefined ? ` • ${formatDuration(item.duration)}` : ""}
 						{item.source !== "" ? ` • ${item.source}` : ""}
 					</div>
-					{item.status === "active" && <ProgressBar downloaded={item.downloaded} total={item.total} />}
+					{item.status === "active" && <ProgressBar item={item} />}
+					{item.status === "active" && <div className="tidload-row__path">{progressText(item)}</div>}
 					{item.status === "failed" && item.error !== undefined && <div className="tidload-row__error">{item.error}</div>}
 					{finished && (
 						<div className="tidload-row__path" title={item.path ?? ""}>

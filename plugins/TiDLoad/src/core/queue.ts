@@ -3,10 +3,28 @@
  * reasoned about (and unit tested) without React or the TIDAL client.
  */
 
+import { percentOf } from "./format";
 import type { QueueItem, TrackMeta } from "../types";
 
 export const isFinished = (item: QueueItem): boolean => item.status === "done" || item.status === "skipped";
 export const isActive = (item: QueueItem): boolean => item.status === "active";
+
+/**
+ * Detects a segmented transfer.
+ *
+ * The client's stream fetcher does `progress.total += contentLength(headers)` for every response, so a
+ * DASH stream (lossy qualities) grows its total segment by segment, while a single FLAC stream sets it
+ * once. Growth therefore means "percentage and ETA cannot be trusted".
+ */
+export const detectSegmented = (previousTotal: number, nextTotal: number, alreadySegmented: boolean): boolean =>
+	alreadySegmented || (previousTotal > 0 && nextTotal > previousTotal);
+
+/**
+ * Percentage complete, or undefined when it cannot be known: no size yet, or a segmented stream whose
+ * total keeps growing.
+ */
+export const progressPercent = (item: QueueItem): number | undefined =>
+	item.segmented === true ? undefined : percentOf(item.downloaded, item.total);
 
 export const createQueueItem = (
 	meta: TrackMeta,
@@ -193,6 +211,7 @@ export const toPersistedItems = (items: QueueItem[], finishedLimit: number): Que
 			downloaded: 0,
 			total: 0,
 			speed: 0,
+			segmented: undefined,
 			startedAt: undefined,
 			finishedAt: undefined,
 			error: undefined,

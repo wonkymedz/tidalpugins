@@ -35,15 +35,16 @@ describe("renderSegments", () => {
 	it("strips path separators so tags cannot escape the destination folder", () => {
 		const segments = renderSegments("{artist}/{title}", { artist: "AC/DC", title: "../../etc/passwd" }, { ext: "flac" });
 		expect(segments).toHaveLength(2);
-		expect(segments[0]).toBe("AC_DC");
+		expect(segments[0]).toBe("ACDC");
 		expect(segments[1]).not.toContain("/");
 		expect(segments[1]).not.toContain("\\");
 		// No segment may start with a dot, so it can never resolve to a parent directory
 		expect(segments.every((segment) => !segment.startsWith("."))).toBe(true);
 	});
 
-	it("removes illegal filename characters and trailing dots", () => {
-		expect(renderSegments("{title}", { title: 'Bad: Name? "Here". ' }, { ext: "flac" })).toEqual(["Bad_ Name_ _Here_.flac"]);
+	it("removes illegal filename characters instead of replacing them", () => {
+		expect(renderSegments("{title}", { title: 'Bad: Name? "Here". ' }, { ext: "flac" })).toEqual(["Bad Name Here.flac"]);
+		expect(renderSegments("{title}", { title: "A|B*C<D>E" }, { ext: "flac" })).toEqual(["ABCDE.flac"]);
 	});
 
 	it("pads track and disc numbers by default and can be turned off", () => {

@@ -65,6 +65,11 @@ export type QueueItem = TrackMeta & {
 	total: number;
 	/** Bytes/second, exponential moving average. */
 	speed: number;
+	/**
+	 * True when the client is feeding this download as a segmented DASH stream (lossy qualities).
+	 * The fetcher adds each segment's length to `total`, so percentages and ETAs are meaningless.
+	 */
+	segmented?: boolean;
 	addedAt: number;
 	startedAt?: number;
 	finishedAt?: number;

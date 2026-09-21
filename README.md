@@ -83,7 +83,13 @@ Skipped entries are labelled in the list: **Already on disk** (filesystem found 
 
 Available template tags: `title`, `trackNumber`, `discNumber`, `bpm`, `year`, `date`, `copyright`, `REPLAYGAIN_TRACK_GAIN`, `REPLAYGAIN_TRACK_PEAK`, `comment`, `isrc`, `upc`, `musicbrainz_trackid`, `musicbrainz_albumid`, `artist`, `album`, `albumArtist`, `genres`, `organization`, `totalTracks`, `lyrics`.
 
-Tags with no value are dropped from the path (a single with no album does not create an `Unknown Album` folder), and every substituted value is sanitised so a tag can never escape the destination folder.
+Tags with no value are dropped from the path (a single with no album does not create an `Unknown Album` folder). Characters that are illegal in a filename are **removed**, not replaced — `AC/DC` → `ACDC`, `Bad: Name?` → `Bad Name` — and leading/trailing dots are trimmed, so a tag can never escape the destination folder.
+
+### Lossy downloads are slower (and why the progress bar differs)
+
+`LOW`/`HIGH` come back from TIDAL as `application/dash+xml`, and TidaLuna's fetcher walks those **segment URLs one at a time** (`for (let url of urls) await fetch(url)`, no concurrency), then runs a post-download finalise/tagging pass. Lossless (`LOSSLESS`/`HI_RES_LOSSLESS`) is a `application/vnd.tidal.bts` manifest with a **single** URL, streamed straight to disk with tags written in flight — no remux. A 3 MB lossy track split across ~40 small sequential requests is therefore often *slower* in wall-clock than a 42 MB FLAC streamed in one go.
+
+That fetcher also does `progress.total += contentLength(...)` per response, so a segmented download's total grows while you watch. TiDLoad detects that (the total only ever grows for segments) and switches that entry's display from a percentage/ETA to `12.4 MB downloaded · segmented stream` with an indeterminate bar, rather than showing a percentage that jumps backwards.
 
 ### Download quality
 

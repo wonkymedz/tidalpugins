@@ -13,7 +13,7 @@
 import type { LunaUnloads, Tracer } from "@luna/core";
 import { redux } from "@luna/lib";
 
-import { percentOf } from "./core/format";
+import { progressPercent } from "./core/queue";
 import { engine } from "./engine";
 import { applyDownloadIcon } from "./icons";
 import { settings } from "./settings";
@@ -149,7 +149,8 @@ export const installSidebarEntry = (unloads: LunaUnloads, trace: Tracer, openPag
 
 		let text = "";
 		if (active !== undefined) {
-			const percent = percentOf(active.downloaded, active.total);
+			// Segmented (lossy) streams have no meaningful percentage — show the activity dots instead.
+			const percent = progressPercent(active);
 			text = percent === undefined ? "…" : `${Math.round(percent)}%`;
 		} else if (pending > 0) {
 			text = String(pending);

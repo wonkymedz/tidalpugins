@@ -306,3 +306,38 @@ describe("download quality", () => {
 		expect(byTrack(2)).toMatchObject({ status: "done" });
 	});
 });
+
+describe("segmented (lossy DASH) streams", () => {
+	it("flags a download whose reported total keeps growing", async () => {
+		// What the client's DASH fetcher reports: each response adds its own length to the total.
+		lunaStub.tracks.get(1)!.progress = [
+			{ downloaded: 60_000, total: 60_000 },
+			{ downloaded: 130_000, total: 130_000 },
+			{ downloaded: 220_000, total: 220_000 },
+		];
+		lunaStub.tracks.get(1)!.downloadDelayMs = 900;
+
+		const album = await Album.fromId(10);
+		await enqueueCollection(album!, { start: true });
+
+		await vi.waitFor(() => expect(byTrack(1)?.segmented).toBe(true), { timeout: 5000, interval: 20 });
+		await settle();
+
+		// Finished entries do not carry the flag: the row is just "done".
+		expect(byTrack(1)?.status).toBe("done");
+		expect(byTrack(1)?.segmented).toBeUndefined();
+	});
+
+	it("does not flag a single stream that reports its size once", async () => {
+		lunaStub.tracks.get(1)!.progress = [
+			{ downloaded: 512, total: 1024 },
+			{ downloaded: 1024, total: 1024 },
+		];
+
+		const album = await Album.fromId(10);
+		await enqueueCollection(album!, { start: true });
+		await settle();
+
+		expect(byTrack(1)?.segmented).toBeUndefined();
+	});
+});

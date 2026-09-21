@@ -19,6 +19,7 @@ import {
 	addItems,
 	clearCompleted as clearCompletedItems,
 	createQueueItem,
+	detectSegmented,
 	moveItem as moveQueueItem,
 	nextPending,
 	patchItem,
@@ -501,6 +502,8 @@ type Poller = { stop: () => void; sawBytes: () => boolean };
 const startProgressPolling = (trackId: number, mediaItem: MediaItem): Poller => {
 	let sawBytes = false;
 	let sample: { at: number; bytes: number; speed: number } | undefined;
+	let lastTotal = 0;
+	let segmented = false;
 
 	const timer = setInterval(() => {
 		void (async () => {
@@ -508,6 +511,13 @@ const startProgressPolling = (trackId: number, mediaItem: MediaItem): Poller => 
 				const progress = await mediaItem.downloadProgress();
 				if (progress === undefined) return;
 				if (progress.downloaded > 0 || progress.total > 0) sawBytes = true;
+
+				// A growing total means the client is appending segment lengths (DASH), so the percentage
+				// and ETA would be nonsense — flag it once and let the UI report bytes instead.
+				const nowSegmented = detectSegmented(lastTotal, progress.total, segmented);
+				lastTotal = progress.total;
+				const justSegmented = nowSegmented && !segmented;
+				segmented = nowSegmented;
 
 				const now = Date.now();
 				let speed = sample?.speed ?? 0;
@@ -521,7 +531,12 @@ const startProgressPolling = (trackId: number, mediaItem: MediaItem): Poller => 
 				sample = { at: now, bytes: progress.downloaded, speed };
 
 				updateItems((items) =>
-					patchItem(items, trackId, { downloaded: progress.downloaded, total: progress.total, speed }),
+					patchItem(items, trackId, {
+						downloaded: progress.downloaded,
+						total: progress.total,
+						speed,
+						...(justSegmented ? { segmented: true } : {}),
+					}),
 				);
 			} catch {
 				// The download finished and dropped its progress entry.
@@ -640,6 +655,7 @@ const processItem = async (item: QueueItem): Promise<void> => {
 				status: "done",
 				skipReason: sawBytes ? undefined : "unchanged",
 				qualityName: qualityLabel(quality),
+				segmented: undefined,
 				finishedAt: Date.now(),
 				speed: 0,
 				path: fullPath,
@@ -654,7 +670,9 @@ const processItem = async (item: QueueItem): Promise<void> => {
 	} catch (err) {
 		poller?.stop();
 		const message = err instanceof Error ? err.message : String(err);
-		updateItems((items) => patchItem(items, item.trackId, { status: "failed", error: message, finishedAt: Date.now(), speed: 0 }));
+		updateItems((items) =>
+			patchItem(items, item.trackId, { status: "failed", error: message, segmented: undefined, finishedAt: Date.now(), speed: 0 }),
+		);
 		trace()?.msg.err.withContext(`TiDLoad: failed to download ${item.artist} — ${item.title}`)(err);
 	}
 };

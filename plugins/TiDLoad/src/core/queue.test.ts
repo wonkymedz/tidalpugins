@@ -5,10 +5,12 @@ import {
 	addItems,
 	clearCompleted,
 	createQueueItem,
+	detectSegmented,
 	moveItem,
 	nextPending,
 	orderForDisplay,
 	patchItem,
+	progressPercent,
 	removeItem,
 	retryFailed,
 	stats,
@@ -126,8 +128,40 @@ describe("stats / nextPending", () => {
 	});
 });
 
-describe("orderForDisplay", () => {
-	it("puts the active item first, then the queue, then finished newest-first", () => {
+describe("detectSegmented", () => {
+	it("flags growth in the reported total", () => {
+		// 0 → first segment: nothing to compare yet
+		expect(detectSegmented(0, 60_000, false)).toBe(false);
+		// the total grew → the client is appending segment lengths (DASH)
+		expect(detectSegmented(60_000, 120_000, false)).toBe(true);
+	});
+
+	it("stays quiet for a single stream that sets its size once", () => {
+		expect(detectSegmented(0, 42_000_000, false)).toBe(false);
+		expect(detectSegmented(42_000_000, 42_000_000, false)).toBe(false);
+	});
+
+	it("never un-flags once segmented", () => {
+		expect(detectSegmented(120_000, 120_000, true)).toBe(true);
+		expect(detectSegmented(0, 0, true)).toBe(true);
+	});
+});
+
+describe("progressPercent", () => {
+	it("reports a percentage for a known total", () => {
+		expect(progressPercent({ ...item(1, "active"), downloaded: 512, total: 1024 })).toBe(50);
+	});
+
+	it("reports nothing when the size is unknown", () => {
+		expect(progressPercent({ ...item(1, "active"), downloaded: 512, total: 0 })).toBeUndefined();
+	});
+
+	it("reports nothing for a segmented stream, whose total keeps growing", () => {
+		expect(progressPercent({ ...item(1, "active"), downloaded: 512, total: 1024, segmented: true })).toBeUndefined();
+	});
+});
+
+describe("orderForDisplay", () => {	it("puts the active item first, then the queue, then finished newest-first", () => {
 		const items = [
 			{ ...item(1, "done"), finishedAt: 100 },
 			item(2, "pending"),
