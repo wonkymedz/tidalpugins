@@ -10,6 +10,7 @@
 
 import {
 	buildFfmpegArgs,
+	DEFAULT_CONVERT_BITRATE,
 	progressFromTime,
 	parseFfmpegProgress,
 	type ConversionFormat,
@@ -27,6 +28,8 @@ export type ConversionRequest = {
 	/** Where the converted file should end up (its extension decides the format). */
 	target: string;
 	format: ConversionFormat;
+	/** Bitrate for the lossy targets; ignored by WAV. */
+	bitrateKbps?: number;
 	durationSeconds?: number;
 };
 
@@ -117,7 +120,12 @@ const convert = async (request: ConversionRequest): Promise<void> => {
 	}
 	if (ffmpegPath === undefined) throw new Error("ffmpeg is not available — open TiDLoad settings to install or locate it");
 
-	const args = buildFfmpegArgs({ input: request.source, output: request.target, format: request.format });
+	const args = buildFfmpegArgs({
+		input: request.source,
+		output: request.target,
+		format: request.format,
+		bitrateKbps: request.bitrateKbps ?? DEFAULT_CONVERT_BITRATE,
+	});
 	const jobId = `${request.trackId}-${Date.now()}`;
 	activeJobId = jobId;
 	activeCancelled = false;

@@ -18,8 +18,11 @@ import { mapWithConcurrency } from "./core/async";
 import {
 	LOSSY_FALLBACK_ORDER,
 	conversionFor,
+	formatUsesBitrate,
 	losslessSourceOrder,
-	normaliseOutputFormat,
+	normaliseConvertBitrate,
+	normaliseConvertFormat,
+	normaliseDownloadMode,
 	outputExtension,
 	replaceExtension,
 } from "./core/convert";
@@ -626,8 +629,10 @@ const processItem = async (item: QueueItem): Promise<void> => {
 		let target = mediaItem;
 		if (settings.useRealMAX) target = (await mediaItem.max()) ?? mediaItem;
 
-		const format = normaliseOutputFormat(settings.outputFormat);
-		const conversion = conversionFor(format);
+		const conversion = conversionFor(normaliseDownloadMode(settings.downloadMode), normaliseConvertFormat(settings.convertFormat));
+		// The bitrate only means something for the lossy targets, so WAV records none.
+		const conversionBitrate =
+			conversion !== undefined && formatUsesBitrate(conversion) ? normaliseConvertBitrate(settings.convertBitrate) : undefined;
 		const requested = normaliseAudioQuality(settings.downloadQuality, DEFAULT_AUDIO_QUALITY);
 		const { tags } = await target.flacTags();
 
@@ -740,18 +745,21 @@ const processItem = async (item: QueueItem): Promise<void> => {
 			updateItems((items) =>
 				patchItem(items, item.trackId, {
 					...downloadedPatch,
-					conversion: { format: conversion, status: "queued", target: finalPath },
+					conversion: { format: conversion, bitrateKbps: conversionBitrate, status: "queued", target: finalPath },
 				}),
 			);
 			rememberDownloaded({ ...item, path: finalPath });
 			trace()?.msg.log(
-				`TiDLoad: downloaded lossless at ${qualityLabel(quality)} → converting to ${conversion.toUpperCase()}: ${item.artist} — ${item.title}`,
+				`TiDLoad: downloaded lossless at ${qualityLabel(quality)} → converting to ${conversion.toUpperCase()}${
+					conversionBitrate === undefined ? "" : ` ${conversionBitrate} kbps`
+				}: ${item.artist} — ${item.title}`,
 			);
 			enqueueConversion({
 				trackId: item.trackId,
 				source: sourcePath,
 				target: finalPath,
 				format: conversion,
+				bitrateKbps: conversionBitrate,
 				durationSeconds: item.duration,
 			});
 		} else {
@@ -764,6 +772,7 @@ const processItem = async (item: QueueItem): Promise<void> => {
 						conversion !== undefined
 							? {
 									format: conversion,
+									bitrateKbps: conversionBitrate,
 									status: "failed" as const,
 									error: "TIDAL has no lossless stream for this track — the downloaded file was kept",
 								}

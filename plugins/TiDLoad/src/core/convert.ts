@@ -10,58 +10,106 @@
 
 import type { AudioQuality } from "./quality";
 
-export const OUTPUT_FORMATS = ["original", "m4a", "mp3", "wav"] as const;
-export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
-/** Formats that require a conversion step. */
-export type ConversionFormat = Exclude<OutputFormat, "original">;
+/**
+ * How a track is obtained.
+ *
+ *  - `segmented`: whatever TIDAL serves for the chosen quality. Lossy tiers arrive as many small DASH
+ *    segments which the client fetches one at a time (plus a remux), so they are slow.
+ *  - `convert`: download the lossless stream in one request, then convert locally with ffmpeg.
+ */
+export const DOWNLOAD_MODES = ["segmented", "convert"] as const;
+export type DownloadMode = (typeof DOWNLOAD_MODES)[number];
+export const DEFAULT_DOWNLOAD_MODE: DownloadMode = "segmented";
 
-export const DEFAULT_OUTPUT_FORMAT: OutputFormat = "original";
-/** Bitrate used for the lossy targets. */
-export const CONVERSION_BITRATE_KBPS = 320;
-
-export type OutputFormatOption = {
-	value: OutputFormat;
+export type DownloadModeOption = {
+	value: DownloadMode;
 	label: string;
 	description: string;
 };
 
-export const outputFormatOptions = (): OutputFormatOption[] => [
+export const downloadModeOptions = (): DownloadModeOption[] => [
 	{
-		value: "original",
-		label: "Original",
-		description: "Download at the chosen quality and keep the file exactly as TIDAL serves it",
-	},
-	{
-		value: "m4a",
-		label: "M4A — AAC 320 kbps",
+		value: "segmented",
+		label: "TIDAL stream (as served)",
 		description:
-			"Download LOSSLESS (one fast stream) and convert locally to AAC 320. Avoids TIDAL's slow segmented AAC.",
+			"Download at the chosen quality exactly as TIDAL serves it. Lossy tiers come as many small DASH segments, which is slower per track.",
 	},
 	{
-		value: "mp3",
-		label: "MP3 — 320 kbps",
-		description: "Download LOSSLESS and convert locally with libmp3lame",
-	},
-	{
-		value: "wav",
-		label: "WAV — lossless",
-		description: "Download LOSSLESS and decode to WAV. Lossless, but roughly 3× the size of the FLAC",
+		value: "convert",
+		label: "Download lossless, convert locally",
+		description:
+			"One fast lossless download, then ffmpeg produces the format and bitrate below. Faster than segmented AAC and never re-encodes lossy audio.",
 	},
 ];
 
-export const isOutputFormat = (value: unknown): value is OutputFormat =>
-	typeof value === "string" && (OUTPUT_FORMATS as readonly string[]).includes(value);
+export const isDownloadMode = (value: unknown): value is DownloadMode =>
+	typeof value === "string" && (DOWNLOAD_MODES as readonly string[]).includes(value);
 
-export const normaliseOutputFormat = (value: unknown, fallback: OutputFormat = DEFAULT_OUTPUT_FORMAT): OutputFormat =>
-	isOutputFormat(value) ? value : fallback;
+export const normaliseDownloadMode = (value: unknown, fallback: DownloadMode = DEFAULT_DOWNLOAD_MODE): DownloadMode =>
+	isDownloadMode(value) ? value : fallback;
 
-/** Human label for a format, e.g. "M4A — AAC 320 kbps". */
-export const outputFormatLabel = (format: OutputFormat): string =>
-	outputFormatOptions().find((option) => option.value === format)?.label ?? format;
+/** Formats ffmpeg can produce. */
+export const CONVERT_FORMATS = ["m4a", "mp3", "wav"] as const;
+export type ConversionFormat = (typeof CONVERT_FORMATS)[number];
+export const DEFAULT_CONVERT_FORMAT: ConversionFormat = "m4a";
 
-/** The conversion a format implies, or undefined for "original". */
-export const conversionFor = (format: OutputFormat): ConversionFormat | undefined =>
-	format === "original" ? undefined : format;
+export type ConvertFormatOption = {
+	value: ConversionFormat;
+	label: string;
+	description: string;
+	lossy: boolean;
+};
+
+export const convertFormatOptions = (): ConvertFormatOption[] => [
+	{
+		value: "m4a",
+		label: "M4A — AAC",
+		description: "AAC in an MP4 container, embedded cover art, faststart for streaming",
+		lossy: true,
+	},
+	{ value: "mp3", label: "MP3 — libmp3lame", description: "MP3 with ID3v2.3 tags and embedded cover art", lossy: true },
+	{
+		value: "wav",
+		label: "WAV — lossless",
+		description: "PCM (pcm_s16le). Lossless, but roughly 3× the size of the FLAC",
+		lossy: false,
+	},
+];
+
+export const convertFormatLabel = (format: ConversionFormat): string =>
+	convertFormatOptions().find((option) => option.value === format)?.label ?? format;
+
+export const isConvertFormat = (value: unknown): value is ConversionFormat =>
+	typeof value === "string" && (CONVERT_FORMATS as readonly string[]).includes(value);
+
+export const normaliseConvertFormat = (value: unknown, fallback: ConversionFormat = DEFAULT_CONVERT_FORMAT): ConversionFormat =>
+	isConvertFormat(value) ? value : fallback;
+
+/** Bitrates offered for the lossy targets (WAV ignores this). */
+export const BITRATE_OPTIONS = [128, 192, 256, 320] as const;
+export const DEFAULT_CONVERT_BITRATE = 320;
+
+export const normaliseConvertBitrate = (value: unknown, fallback: number = DEFAULT_CONVERT_BITRATE): number => {
+	const parsed = typeof value === "number" ? value : Number(value);
+	return (BITRATE_OPTIONS as readonly number[]).includes(parsed) ? parsed : fallback;
+};
+
+/** True when the format needs a bitrate (everything except WAV). */
+export const formatUsesBitrate = (format: ConversionFormat): boolean => format !== "wav";
+
+/**
+ * Where a stored setting came from before the method/format split (v1.1 used a single "output format").
+ * Keeps existing users' choice without a settings reset.
+ */
+export const migrateLegacyOutputFormat = (legacy: unknown): { mode: DownloadMode; format: ConversionFormat } | undefined => {
+	if (legacy === "m4a" || legacy === "mp3" || legacy === "wav") return { mode: "convert", format: legacy };
+	if (legacy === "original") return { mode: "segmented", format: DEFAULT_CONVERT_FORMAT };
+	return undefined;
+};
+
+/** The conversion a mode implies, or undefined for plain segmented downloads. */
+export const conversionFor = (mode: DownloadMode, format: ConversionFormat): ConversionFormat | undefined =>
+	mode === "convert" ? format : undefined;
 
 export const outputExtension = (format: ConversionFormat): string => format;
 
@@ -109,7 +157,7 @@ export const buildFfmpegArgs = ({
 	input,
 	output,
 	format,
-	bitrateKbps = CONVERSION_BITRATE_KBPS,
+	bitrateKbps = DEFAULT_CONVERT_BITRATE,
 }: FfmpegArgsOptions): string[] => {
 	const common = ["-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", input, "-map_metadata", "0", "-progress", "pipe:1", "-nostats"];
 

@@ -26,7 +26,7 @@ vi.mock("./disk.native", () => ({
 
 /** Conversions are recorded rather than run, so the download loop can be tested on its own. */
 const conversions = vi.hoisted(() => ({
-	queued: [] as { trackId: number; source: string; target: string; format: string }[],
+	queued: [] as { trackId: number; source: string; target: string; format: string; bitrateKbps?: number; durationSeconds?: number }[],
 	update: undefined as undefined | ((trackId: number, update: { status: string; percent?: number; error?: string }) => void),
 }));
 
@@ -105,7 +105,9 @@ beforeEach(async () => {
 	settings.useRealMAX = false;
 	settings.pathFormat = "{artist}/{album}/{trackNumber} - {title}";
 	settings.downloadQuality = "HI_RES_LOSSLESS";
-	settings.outputFormat = "original";
+	settings.downloadMode = "segmented";
+	settings.convertFormat = "m4a";
+	settings.convertBitrate = 320;
 	settings.keepLosslessSource = false;
 	conversions.queued.length = 0;
 	conversions.update = undefined;
@@ -373,7 +375,8 @@ describe("segmented (lossy DASH) streams", () => {
 
 describe("local conversion", () => {
 	it("downloads lossless and hands the file to the conversion worker", async () => {
-		settings.outputFormat = "m4a";
+		settings.downloadMode = "convert";
+		settings.convertFormat = "m4a";
 		conversions.queued.length = 0;
 
 		const album = await Album.fromId(10);
@@ -387,14 +390,29 @@ describe("local conversion", () => {
 		// The entry points at the converted file, and the worker was given source → target.
 		expect(byTrack(1)?.path).toBe(trackPath("First", 1).replace(/\.flac$/, ".m4a"));
 		expect(conversions.queued).toEqual([
-			{ trackId: 1, source: trackPath("First", 1), target: trackPath("First", 1).replace(/\.flac$/, ".m4a"), format: "m4a", durationSeconds: 180 },
-			{ trackId: 2, source: trackPath("Second", 2), target: trackPath("Second", 2).replace(/\.flac$/, ".m4a"), format: "m4a", durationSeconds: 180 },
+			{ trackId: 1, source: trackPath("First", 1), target: trackPath("First", 1).replace(/\.flac$/, ".m4a"), format: "m4a", bitrateKbps: 320, durationSeconds: 180 },
+			{ trackId: 2, source: trackPath("Second", 2), target: trackPath("Second", 2).replace(/\.flac$/, ".m4a"), format: "m4a", bitrateKbps: 320, durationSeconds: 180 },
 		]);
 		expect(byTrack(1)?.conversion).toMatchObject({ format: "m4a", status: "queued" });
 	});
 
+	it("passes the configured bitrate to the worker", async () => {
+		settings.downloadMode = "convert";
+		settings.convertFormat = "mp3";
+		settings.convertBitrate = 192;
+		conversions.queued.length = 0;
+
+		const album = await Album.fromId(10);
+		await enqueueCollection(album!, { start: true });
+		await settle();
+
+		expect(conversions.queued.map((entry) => entry.bitrateKbps)).toEqual([192, 192]);
+		settings.convertBitrate = 320;
+	});
+
 	it("keeps TIDAL's lossy file and says so when a track has no lossless stream", async () => {
-		settings.outputFormat = "m4a";
+		settings.downloadMode = "convert";
+		settings.convertFormat = "m4a";
 		conversions.queued.length = 0;
 		lunaStub.tracks.get(1)!.failQualities = ["HI_RES_LOSSLESS", "LOSSLESS"];
 
@@ -410,7 +428,8 @@ describe("local conversion", () => {
 	});
 
 	it("applies the worker's progress reports to the entry", async () => {
-		settings.outputFormat = "mp3";
+		settings.downloadMode = "convert";
+		settings.convertFormat = "mp3";
 
 		const album = await Album.fromId(10);
 		await enqueueCollection(album!, { start: true });

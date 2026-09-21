@@ -9,9 +9,9 @@
 
 import type { Tracer } from "@luna/core";
 
-import { ffmpegCandidates, ffmpegInstallDir, ffmpegInstallPlan } from "./core/ffmpeg";
+import { ffmpegCandidates, ffmpegInstallDir, ffmpegInstallPlan, hasEncoder } from "./core/ffmpeg";
 import { createObservable } from "./core/store";
-import { env, findFfmpeg, installFfmpeg, installProgress, probe } from "./ffmpeg.native";
+import { encoders, env, findFfmpeg, installFfmpeg, installProgress, probe } from "./ffmpeg.native";
 import { settings } from "./settings";
 
 export type FfmpegStatus = {
@@ -88,7 +88,71 @@ export const refreshFfmpegStatus = async (trace?: Tracer): Promise<FfmpegStatus>
 export const setFfmpegPath = (path: string | undefined): void => {
 	settings.ffmpegPath = path;
 	ffmpegStatus.set({ checking: false, checked: false });
+	ffmpegEncoders.set({ checking: false, checked: false });
 };
+
+// #region encoder capabilities
+
+export type EncoderStatus = {
+	/** undefined while checking, null when the list could not be read. */
+	encoders?: string[] | null;
+	checking: boolean;
+	checked: boolean;
+	error?: string;
+};
+
+/**
+ * Which encoders the located ffmpeg actually has.
+ *
+ * Essentials builds ship everything TiDLoad uses, but trimmed builds (and some distro packages) drop
+ * libmp3lame — knowing that up front beats discovering it when a conversion fails after a download.
+ */
+export const ffmpegEncoders = createObservable<EncoderStatus>({ checking: false, checked: false });
+
+let encodersInFlight: Promise<EncoderStatus> | undefined;
+
+export const refreshFfmpegEncoders = async (): Promise<EncoderStatus> => {
+	if (encodersInFlight !== undefined) return encodersInFlight;
+
+	encodersInFlight = (async (): Promise<EncoderStatus> => {
+		const path = ffmpegStatus.get().path;
+		if (path === undefined || path === null) {
+			const status: EncoderStatus = { encoders: null, checking: false, checked: true };
+			ffmpegEncoders.set(status);
+			return status;
+		}
+
+		ffmpegEncoders.update({ checking: true, error: undefined });
+		try {
+			const list = await encoders(path);
+			const status: EncoderStatus = { encoders: list, checking: false, checked: true };
+			ffmpegEncoders.set(status);
+			return status;
+		} catch (err) {
+			const status: EncoderStatus = {
+				encoders: null,
+				checking: false,
+				checked: true,
+				error: err instanceof Error ? err.message : String(err),
+			};
+			ffmpegEncoders.set(status);
+			return status;
+		} finally {
+			encodersInFlight = undefined;
+		}
+	})();
+
+	return encodersInFlight;
+};
+
+/** True when the located ffmpeg has the encoder a format needs; undefined while it is unknown. */
+export const encoderAvailable = (name: string): boolean | undefined => {
+	const { encoders: list } = ffmpegEncoders.get();
+	if (list === undefined || list === null) return undefined;
+	return hasEncoder(list, name);
+};
+
+// #endregion
 
 // #region managed install
 

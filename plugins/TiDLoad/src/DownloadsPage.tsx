@@ -49,9 +49,10 @@ const STATUS_LABEL: Record<QueueItem["status"], string> = {
 const conversionChip = (item: QueueItem): string | undefined => {
 	const conversion = item.conversion;
 	if (conversion === undefined) return undefined;
+	const label = `${conversion.format.toUpperCase()}${conversion.bitrateKbps === undefined ? "" : ` ${conversion.bitrateKbps} kbps`}`;
 	switch (conversion.status) {
 		case "queued":
-			return `Converting to ${conversion.format.toUpperCase()}…`;
+			return `Converting to ${label}…`;
 		case "running":
 			return `Converting${conversion.percent !== undefined ? ` ${Math.round(conversion.percent)}%` : "…"}`;
 		case "failed":

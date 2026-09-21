@@ -149,6 +149,21 @@ describe("conversion worker", () => {
 		expect(started.args[started.args.length - 1]).toBe("/music/Track 2.wav");
 	});
 
+	it("uses the requested bitrate, and 320 when none is given", async () => {
+		enqueueConversion({ ...request(22, "mp3"), bitrateKbps: 192 });
+		await vi.waitFor(() => expect(native.started.some((job) => job.jobId.startsWith("22-"))).toBe(true), {
+			timeout: 5000,
+			interval: 10,
+		});
+		const jobId = native.started.find((job) => job.jobId.startsWith("22-"))!.jobId;
+		expect(native.started.find((job) => job.jobId === jobId)!.args).toContain("192k");
+		native.progress.set(jobId, { stdout: "", stderr: "", done: true, code: 0 });
+		await settle();
+
+		await runConversion(23, {}, "mp3");
+		expect(native.started.find((job) => job.jobId.startsWith("23-"))!.args).toContain("320k");
+	});
+
 	it("deletes the lossless source after a successful conversion", async () => {
 		await runConversion(3);
 		expect(native.removed).toEqual(["/music/Track 3.flac"]);

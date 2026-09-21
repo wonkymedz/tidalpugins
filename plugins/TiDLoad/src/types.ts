@@ -7,12 +7,14 @@
 
 /** A TIDAL audio quality value — a string like "HIGH", never a number. See core/quality.ts. */
 import type { AudioQuality } from "./core/quality";
-import type { ConversionFormat, OutputFormat } from "./core/convert";
-export type { AudioQuality, ConversionFormat };
+import type { ConversionFormat, DownloadMode } from "./core/convert";
+export type { AudioQuality, ConversionFormat, DownloadMode };
 
 /** Local ffmpeg conversion of a finished lossless download. */
 export type ConversionState = {
 	format: ConversionFormat;
+	/** Bitrate used for the lossy targets (unset for WAV). */
+	bitrateKbps?: number;
 	status: "queued" | "running" | "done" | "failed";
 	/** 0-100 while running, when the source duration is known. */
 	percent?: number;
@@ -89,7 +91,7 @@ export type QueueItem = TrackMeta & {
 	skipReason?: SkipReason;
 	/** Size reported by the on-disk check, when TiDLoad skipped a file it found. */
 	existingSize?: number;
-	/** Local conversion state, when an output format other than "original" is selected. */
+	/** Local conversion state, when the download method is "convert". */
 	conversion?: ConversionState;
 };
 
@@ -113,8 +115,12 @@ export type Settings = {
 	nowPlayingButton: boolean;
 	/** ffmpeg executable the user picked (or TiDLoad installed) — used for local conversion. */
 	ffmpegPath?: string;
-	/** What TiDLoad should leave on disk: the download as-is, or a locally converted file. */
-	outputFormat: OutputFormat;
+	/** How downloads are obtained: TIDAL's own (segmented) stream, or lossless + local ffmpeg conversion. */
+	downloadMode: DownloadMode;
+	/** Target format for "convert" mode. */
+	convertFormat: ConversionFormat;
+	/** Bitrate for the lossy conversion targets (ignored by WAV). */
+	convertBitrate: number;
 	/** Keep the downloaded lossless file after a successful conversion. */
 	keepLosslessSource: boolean;
 	/** Skip a track when the destination file already exists (asks for filesystem access once). */

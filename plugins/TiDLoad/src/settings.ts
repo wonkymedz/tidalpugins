@@ -10,7 +10,15 @@ import { ReactiveStore } from "@luna/core";
 import { Quality } from "@luna/lib";
 
 import { DEFAULT_AUDIO_QUALITY, isAudioQuality, normaliseAudioQuality, type AudioQuality } from "./core/quality";
-import { normaliseOutputFormat } from "./core/convert";
+import {
+	DEFAULT_CONVERT_BITRATE,
+	DEFAULT_CONVERT_FORMAT,
+	DEFAULT_DOWNLOAD_MODE,
+	migrateLegacyOutputFormat,
+	normaliseConvertBitrate,
+	normaliseConvertFormat,
+	normaliseDownloadMode,
+} from "./core/convert";
 import { toPersistedItems } from "./core/queue";
 import { DEFAULT_PATH_FORMAT } from "./core/template";
 import type { QueueItem, Settings } from "./types";
@@ -25,7 +33,9 @@ export const DEFAULT_SETTINGS: Settings = {
 	sidebarEntry: true,
 	queueButton: true,
 	nowPlayingButton: true,
-	outputFormat: "original",
+	downloadMode: DEFAULT_DOWNLOAD_MODE,
+	convertFormat: DEFAULT_CONVERT_FORMAT,
+	convertBitrate: DEFAULT_CONVERT_BITRATE,
 	keepLosslessSource: false,
 	skipExisting: true,
 	restoreQueue: "paused",
@@ -46,7 +56,18 @@ if (settings.menuAction !== "start" && settings.menuAction !== "queue") settings
 if (typeof settings.sidebarEntry !== "boolean") settings.sidebarEntry = DEFAULT_SETTINGS.sidebarEntry;
 if (typeof settings.queueButton !== "boolean") settings.queueButton = DEFAULT_SETTINGS.queueButton;
 if (typeof settings.nowPlayingButton !== "boolean") settings.nowPlayingButton = DEFAULT_SETTINGS.nowPlayingButton;
-settings.outputFormat = normaliseOutputFormat(settings.outputFormat);
+// v1.2 replaced the single "output format" dropdown with a download method + conversion format. Do the
+// split once for anyone upgrading, then forget the old key so a later choice is never overwritten.
+const legacyFormat = migrateLegacyOutputFormat((settings as Record<string, unknown>).outputFormat);
+if (legacyFormat !== undefined) {
+	settings.downloadMode = legacyFormat.mode;
+	settings.convertFormat = legacyFormat.format;
+}
+(settings as Record<string, unknown>).outputFormat = undefined;
+
+settings.downloadMode = normaliseDownloadMode(settings.downloadMode);
+settings.convertFormat = normaliseConvertFormat(settings.convertFormat);
+settings.convertBitrate = normaliseConvertBitrate(settings.convertBitrate);
 if (typeof settings.keepLosslessSource !== "boolean") settings.keepLosslessSource = DEFAULT_SETTINGS.keepLosslessSource;
 if (settings.ffmpegPath !== undefined && (typeof settings.ffmpegPath !== "string" || settings.ffmpegPath.trim() === "")) {
 	settings.ffmpegPath = undefined;

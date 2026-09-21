@@ -15,7 +15,7 @@ Queue up **tracks, albums, playlists and artists**, watch them download with liv
 - **Download the playing track** — a download icon in the now-playing bar next to the favourite button; it downloads whatever is playing, and says so in its tooltip when you already have that track.
 - **One downloads list** — the queue and everything already downloaded live in the same list. Filter by All / Queued / Finished / Failed; reorder queued items, retry failures, re-download or reveal finished files, clear finished entries.
 - **Skips what you already have** — before downloading, TiDLoad checks its own records and then the real filesystem at the exact destination path. Re-adding an album downloads only the tracks whose files are missing.
-- **Local conversion (fast small files)** — pick *M4A (AAC 320)*, *MP3 320* or *WAV* and TiDLoad downloads the **lossless** stream (one fast request) and converts it locally with ffmpeg, instead of pulling TIDAL's slow segmented AAC. Settings can install ffmpeg for you (pinned, SHA-256 verified) or locate an existing copy.
+- **Two download methods, one switch** — *TIDAL stream (as served)* pulls exactly what TIDAL serves at your chosen quality; *Download lossless, convert locally* pulls the **lossless** stream in a single fast request and converts it with ffmpeg to **M4A/AAC**, **MP3** or **WAV** at 128/192/256/320 kbps — avoiding TIDAL's slow segmented AAC entirely. Settings can install ffmpeg for you (pinned, SHA-256 verified), locate an existing copy, and report which encoders it has.
 - **Downloads manager page** (`?TiDLoad`, reachable from the sidebar, from any right-click menu, or the deep link `tidaluna://` routes)
   - Queue table with cover art, status, quality, per-track progress, speed and ETA
   - Pause / resume the queue, reorder pending items, remove items, retry failed ones, clear finished ones
@@ -68,10 +68,12 @@ Skipped entries are labelled in the list: **Already on disk** (filesystem found 
 
 | Setting | What it does |
 | --- | --- |
-| Download quality | Lowest → HiRes. Values are TIDAL's own strings (`LOW`, `HIGH`, `LOSSLESS`, `HI_RES_LOSSLESS`); if a track has no stream at the chosen quality TiDLoad falls back to HiRes and records that in the list. Ignored while an output format below is selected. |
-| Output format | `Original` · `M4A — AAC 320 kbps` · `MP3 — 320 kbps` · `WAV — lossless`. The last three download LOSSLESS and convert locally (see below). |
+| Download quality | Lowest → HiRes. Values are TIDAL's own strings (`LOW`, `HIGH`, `LOSSLESS`, `HI_RES_LOSSLESS`); if a track has no stream at the chosen quality TiDLoad falls back to HiRes and records that in the list. Ignored while the download method is *Download lossless, convert locally*. |
+| Download method | `TIDAL stream (as served)` — download exactly what TIDAL serves at the quality above. `Download lossless, convert locally` — one fast lossless download per track, then convert it with ffmpeg (see below). This is the switch between TIDAL's segmented lossy AAC and a local conversion. |
+| Convert to | Shown in convert mode: `M4A — AAC` · `MP3 — libmp3lame` · `WAV — lossless`. Each option names the encoder it needs, and says so if your ffmpeg is missing it. |
+| Conversion bitrate | Shown in convert mode for M4A/MP3: `128` · `192` · `256` · `320 kbps` (default). WAV is lossless and ignores it. |
 | Keep the lossless source | Keep the downloaded FLAC next to the converted file (off: the FLAC is deleted after a successful conversion). |
-| ffmpeg | Status of the ffmpeg TiDLoad will use, with *Re-check*, *Locate ffmpeg…* and *Download & install* (Windows, pinned 9.0.2, SHA-256 verified). |
+| ffmpeg | Status of the ffmpeg TiDLoad will use, which encoders it has, and *Re-check*, *Locate ffmpeg…*, *Download & install* (Windows, pinned 9.0.2, SHA-256 verified) and *Forget saved path*. |
 | Use RealMAX | Searches other releases by ISRC for a higher quality copy of each track. |
 | Save location | Ask every time, or always use the default folder. |
 | File and folder template | e.g. `{artist}/{album}/{trackNumber} - {title}` — `/` creates folders; a live preview and preset buttons are shown. |
@@ -95,9 +97,11 @@ Tags with no value are dropped from the path (a single with no album does not cr
 
 That fetcher also does `progress.total += contentLength(...)` per response, so a segmented download's total grows while you watch. TiDLoad detects that (the total only ever grows for segments) and switches that entry's display from a percentage/ETA to `12.4 MB downloaded · segmented stream` with an indeterminate bar, rather than showing a percentage that jumps backwards.
 
-### Output formats: download lossless, convert locally
+### Download methods: TIDAL's stream, or lossless + local ffmpeg
 
-Selecting **M4A (AAC 320)**, **MP3 320** or **WAV** makes TiDLoad request `HI_RES_LOSSLESS` (falling back to `LOSSLESS`) and then run ffmpeg on the finished file:
+**Download method → _TIDAL stream (as served)_** downloads whatever TIDAL returns for the chosen quality — a single lossless stream, or the segmented lossy DASH stream described above.
+
+**Download method → _Download lossless, convert locally_** requests `HI_RES_LOSSLESS` (falling back to `LOSSLESS`) and then runs ffmpeg on the finished file, with the format and bitrate chosen under *Convert to* / *Conversion bitrate*:
 
 ```
 ffmpeg -i <track>.flac … -c:a aac -b:a 320k -c:v copy -disposition:v attached_pic -movflags +faststart <track>.m4a
@@ -110,6 +114,7 @@ ffmpeg -i <track>.flac … -c:a aac -b:a 320k -c:v copy -disposition:v attached_
 - The FLAC is deleted only after a **successful** conversion (unless *Keep the lossless source* is on). A failure keeps the lossless file and says so on the entry.
 - A track TIDAL only has in lossy form is downloaded as-is and marked *not converted* rather than re-encoded.
 - An interrupted conversion (client closed mid-run) comes back marked as interrupted with the lossless file still in place.
+- The format list names the encoder each target needs (`aac`, `libmp3lame`, `pcm_s16le`) and warns when the located ffmpeg does not list it; the ffmpeg section shows the encoders it found at a glance.
 
 **ffmpeg is required for this.** TidaLuna does not let plugins touch the filesystem or spawn processes by itself, so TiDLoad ships one small native module (`src/ffmpeg.native.ts`) that asks for `fs` and `child_process` — two one-time prompts from TidaLuna, remembered against a hash of that file. The plugin never bundles ffmpeg: it looks for an existing install (TiDLoad's own folder, winget Links, chocolatey, Program Files, `PATH`) and, if you ask it to, downloads the pinned **GyanD/codexffmpeg 9.0.2 “essentials”** build into `%LOCALAPPDATA%\TiDLoad\ffmpeg\bin` after verifying its SHA-256. That build is GPL; TiDLoad only runs it as a separate process.
 

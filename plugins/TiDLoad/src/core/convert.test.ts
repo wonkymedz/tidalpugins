@@ -1,41 +1,86 @@
 import { describe, expect, it } from "vitest";
 
 import {
-	CONVERSION_BITRATE_KBPS,
+	BITRATE_OPTIONS,
+	DEFAULT_CONVERT_BITRATE,
 	LOSSY_FALLBACK_ORDER,
 	buildFfmpegArgs,
 	conversionFor,
-	isOutputFormat,
+	convertFormatOptions,
+	downloadModeOptions,
+	formatUsesBitrate,
+	isConvertFormat,
+	isDownloadMode,
 	losslessSourceOrder,
-	normaliseOutputFormat,
+	migrateLegacyOutputFormat,
+	normaliseConvertBitrate,
+	normaliseConvertFormat,
+	normaliseDownloadMode,
 	outputExtension,
-	outputFormatOptions,
 	parseFfmpegProgress,
 	progressFromTime,
 	replaceExtension,
 	requiredEncoder,
 } from "./convert";
 
-describe("output formats", () => {
-	it("offers original plus the three conversion targets", () => {
-		expect(outputFormatOptions().map((option) => option.value)).toEqual(["original", "m4a", "mp3", "wav"]);
+describe("download modes", () => {
+	it("offers the segmented stream and local conversion", () => {
+		expect(downloadModeOptions().map((option) => option.value)).toEqual(["segmented", "convert"]);
 	});
 
 	it("validates and normalises stored values", () => {
-		expect(isOutputFormat("m4a")).toBe(true);
-		expect(isOutputFormat("flac")).toBe(false);
-		expect(isOutputFormat(undefined)).toBe(false);
-		expect(isOutputFormat(3)).toBe(false);
-		expect(normaliseOutputFormat("bogus")).toBe("original");
-		expect(normaliseOutputFormat("wav")).toBe("wav");
-		expect(normaliseOutputFormat(null, "m4a")).toBe("m4a");
+		expect(isDownloadMode("convert")).toBe(true);
+		expect(isDownloadMode("ffmpeg")).toBe(false);
+		expect(isDownloadMode(undefined)).toBe(false);
+		expect(normaliseDownloadMode("nonsense")).toBe("segmented");
+		expect(normaliseDownloadMode("convert")).toBe("convert");
+		expect(normaliseDownloadMode(null, "convert")).toBe("convert");
 	});
 
-	it("maps a format to its conversion and extension", () => {
-		expect(conversionFor("original")).toBeUndefined();
-		expect(conversionFor("mp3")).toBe("mp3");
+	it("splits the pre-1.2 output format setting", () => {
+		expect(migrateLegacyOutputFormat("m4a")).toEqual({ mode: "convert", format: "m4a" });
+		expect(migrateLegacyOutputFormat("wav")).toEqual({ mode: "convert", format: "wav" });
+		expect(migrateLegacyOutputFormat("original")).toEqual({ mode: "segmented", format: "m4a" });
+		expect(migrateLegacyOutputFormat(undefined)).toBeUndefined();
+		expect(migrateLegacyOutputFormat("bogus")).toBeUndefined();
+	});
+});
+
+describe("conversion formats", () => {
+	it("offers the three conversion targets", () => {
+		expect(convertFormatOptions().map((option) => option.value)).toEqual(["m4a", "mp3", "wav"]);
+	});
+
+	it("validates and normalises stored values", () => {
+		expect(isConvertFormat("m4a")).toBe(true);
+		expect(isConvertFormat("flac")).toBe(false);
+		expect(isConvertFormat(undefined)).toBe(false);
+		expect(isConvertFormat(3)).toBe(false);
+		expect(normaliseConvertFormat("bogus")).toBe("m4a");
+		expect(normaliseConvertFormat("wav")).toBe("wav");
+		expect(normaliseConvertFormat(null, "mp3")).toBe("mp3");
+	});
+
+	it("maps a mode and format to a conversion and extension", () => {
+		expect(conversionFor("segmented", "mp3")).toBeUndefined();
+		expect(conversionFor("convert", "mp3")).toBe("mp3");
 		expect(outputExtension("m4a")).toBe("m4a");
 		expect(outputExtension("wav")).toBe("wav");
+	});
+
+	it("only offers valid bitrates and falls back to 320", () => {
+		expect(BITRATE_OPTIONS).toEqual([128, 192, 256, 320]);
+		expect(normaliseConvertBitrate(192)).toBe(192);
+		expect(normaliseConvertBitrate("256")).toBe(256);
+		expect(normaliseConvertBitrate(999)).toBe(DEFAULT_CONVERT_BITRATE);
+		expect(normaliseConvertBitrate(undefined)).toBe(DEFAULT_CONVERT_BITRATE);
+		expect(normaliseConvertBitrate(undefined, 128)).toBe(128);
+	});
+
+	it("knows which formats take a bitrate", () => {
+		expect(formatUsesBitrate("m4a")).toBe(true);
+		expect(formatUsesBitrate("mp3")).toBe(true);
+		expect(formatUsesBitrate("wav")).toBe(false);
 	});
 
 	it("names the encoder each target needs", () => {
@@ -86,7 +131,7 @@ describe("buildFfmpegArgs", () => {
 		const args = buildFfmpegArgs({ ...base, format: "m4a" });
 		expect(args[args.indexOf("-i") + 1]).toBe("/in/Song.flac");
 		expect(pair(args, "-c:a", "aac")).toBeGreaterThan(-1);
-		expect(pair(args, "-b:a", `${CONVERSION_BITRATE_KBPS}k`)).toBeGreaterThan(-1);
+		expect(pair(args, "-b:a", `${DEFAULT_CONVERT_BITRATE}k`)).toBeGreaterThan(-1);
 		expect(pair(args, "-map", "0:a")).toBeGreaterThan(-1);
 		// Cover art: the attached picture stream is copied through when the FLAC has one.
 		expect(pair(args, "-map", "0:v?")).toBeGreaterThan(-1);
@@ -100,7 +145,7 @@ describe("buildFfmpegArgs", () => {
 	it("encodes MP3 with libmp3lame and ID3v2.3 tags", () => {
 		const args = buildFfmpegArgs({ input: "/in/Song.flac", output: "/out/Song.mp3", format: "mp3" });
 		expect(pair(args, "-c:a", "libmp3lame")).toBeGreaterThan(-1);
-		expect(pair(args, "-b:a", `${CONVERSION_BITRATE_KBPS}k`)).toBeGreaterThan(-1);
+		expect(pair(args, "-b:a", `${DEFAULT_CONVERT_BITRATE}k`)).toBeGreaterThan(-1);
 		expect(pair(args, "-id3v2_version", "3")).toBeGreaterThan(-1);
 		expect(pair(args, "-disposition:v", "attached_pic")).toBeGreaterThan(-1);
 		expect(args[args.length - 1]).toBe("/out/Song.mp3");

@@ -14,9 +14,31 @@ import { LunaButtonSetting, LunaNumberSetting, LunaSelectItem, LunaSelectSetting
 import { DEFAULT_PATH_FORMAT, SAMPLE_TAGS, TEMPLATE_PRESETS, renderTemplate } from "./core/template";
 import { platformSeparator } from "./core/paths";
 import { qualityOptions } from "./core/quality";
-import { conversionFor, normaliseOutputFormat, outputFormatOptions } from "./core/convert";
+import {
+	BITRATE_OPTIONS,
+	CONVERT_FORMATS,
+	DEFAULT_CONVERT_BITRATE,
+	convertFormatOptions,
+	conversionFor,
+	downloadModeOptions,
+	formatUsesBitrate,
+	normaliseConvertBitrate,
+	normaliseConvertFormat,
+	normaliseDownloadMode,
+	requiredEncoder,
+	type ConversionFormat,
+} from "./core/convert";
+import { hasEncoder } from "./core/ffmpeg";
 import { clearQueue, downloadedCount, engine, forgetDownloaded } from "./engine";
-import { ffmpegStatus, installManagedFfmpeg, installStatus, refreshFfmpegStatus, setFfmpegPath } from "./ffmpeg";
+import {
+	ffmpegEncoders,
+	ffmpegStatus,
+	installManagedFfmpeg,
+	installStatus,
+	refreshFfmpegEncoders,
+	refreshFfmpegStatus,
+	setFfmpegPath,
+} from "./ffmpeg";
 import { clearPersistedItems, setDownloadQuality, settings } from "./settings";
 import { refreshNowPlayingButton } from "./nowPlaying";
 import { refreshPlayQueueButton } from "./playQueue";
@@ -52,14 +74,27 @@ const pickFfmpeg = async (): Promise<string | undefined> => {
  */
 const FfmpegRow = () => {
 	const status = React.useSyncExternalStore(ffmpegStatus.subscribe, ffmpegStatus.get, ffmpegStatus.get);
+	const enc = React.useSyncExternalStore(ffmpegEncoders.subscribe, ffmpegEncoders.get, ffmpegEncoders.get);
 	const install = React.useSyncExternalStore(installStatus.subscribe, installStatus.get, installStatus.get);
 	const [checkedOnce, setCheckedOnce] = React.useState(false);
 	const [busy, setBusy] = React.useState(false);
 
+	/** Locate ffmpeg, then read its encoder list — the two facts the conversion settings depend on. */
+	const recheck = async (): Promise<{ ready: boolean; version?: string; error?: string }> => {
+		const result = await refreshFfmpegStatus();
+		const ok = result.path !== undefined && result.path !== null;
+		if (ok) {
+			await refreshFfmpegEncoders();
+		} else {
+			ffmpegEncoders.set({ encoders: null, checking: false, checked: true });
+		}
+		return { ready: ok, version: result.version, error: result.error };
+	};
+
 	React.useEffect(() => {
 		if (checkedOnce) return;
 		setCheckedOnce(true);
-		void refreshFfmpegStatus();
+		void recheck();
 	}, [checkedOnce]);
 
 	const ready = status.path !== undefined && status.path !== null;
@@ -72,6 +107,15 @@ const FfmpegRow = () => {
 				: status.checked
 					? "Not found. Conversion needs ffmpeg — install it below, or point TiDLoad at an existing copy."
 					: "Not checked yet.";
+
+	/** One line per encoder TiDLoad can use, so a trimmed build is obvious before it matters. */
+	const capabilityLine = React.useMemo(() => {
+		if (!ready) return undefined;
+		if (enc.encoders === undefined || enc.encoders === null) return "Encoders: checking…";
+		return `Encoders: ${CONVERT_FORMATS.map(
+			(format) => `${requiredEncoder(format)} ${hasEncoder(enc.encoders as string[], requiredEncoder(format)) ? "✓" : "✗"}`,
+		).join("   ")}`;
+	}, [ready, enc.encoders]);
 
 	const installing = busy && install.stage !== "done" && install.stage !== "failed";
 	const installPercent =
@@ -86,8 +130,9 @@ const FfmpegRow = () => {
 						}`
 					: state}
 			</div>
+			{capabilityLine !== undefined && <div className="tidload-muted">{capabilityLine}</div>}
 			<div className="tidload-settings__presets">
-				<button type="button" className="tidload-btn tidload-btn--ghost" onClick={() => void refreshFfmpegStatus()}>
+				<button type="button" className="tidload-btn tidload-btn--ghost" onClick={() => void recheck()}>
 					Re-check
 				</button>
 				<button
@@ -97,12 +142,12 @@ const FfmpegRow = () => {
 						const path = await pickFfmpeg();
 						if (path === undefined) return;
 						setFfmpegPath(path);
-						const result = await refreshFfmpegStatus();
+						const result = await recheck();
 						toast(
-							result.path !== undefined && result.path !== null
+							result.ready
 								? `TiDLoad: ffmpeg ${result.version ?? "found"}`
 								: `TiDLoad: that file is not a usable ffmpeg (${result.error ?? "unknown error"})`,
-							{ kind: result.path !== undefined && result.path !== null ? "info" : "error" },
+							{ kind: result.ready ? "info" : "error" },
 						);
 					}}
 				>
@@ -117,6 +162,7 @@ const FfmpegRow = () => {
 							setBusy(true);
 							try {
 								const result = await installManagedFfmpeg();
+								if (result.path !== undefined) await refreshFfmpegEncoders();
 								toast(
 									result.path !== undefined
 										? `TiDLoad: installed ffmpeg ${result.version ?? ""} — conversion is ready`
@@ -135,9 +181,9 @@ const FfmpegRow = () => {
 					<button
 						type="button"
 						className="tidload-btn tidload-btn--ghost"
-						onClick={() => {
+						onClick={async () => {
 							setFfmpegPath(undefined);
-							void refreshFfmpegStatus();
+							await recheck();
 						}}
 					>
 						Forget saved path
@@ -164,21 +210,33 @@ export const Settings = () => {
 	const [queueButton, setQueueButton] = React.useState(settings.queueButton);
 	const [nowPlayingButton, setNowPlayingButton] = React.useState(settings.nowPlayingButton);
 	const [skipExisting, setSkipExisting] = React.useState(settings.skipExisting);
-	const [outputFormat, setOutputFormatState] = React.useState(settings.outputFormat);
+	const [downloadMode, setDownloadModeState] = React.useState(settings.downloadMode);
+	const [convertFormat, setConvertFormatState] = React.useState(settings.convertFormat);
+	const [convertBitrate, setConvertBitrateState] = React.useState(settings.convertBitrate);
 	const [keepLosslessSource, setKeepLosslessSource] = React.useState(settings.keepLosslessSource);
 	const [restoreQueue, setRestoreQueue] = React.useState(settings.restoreQueue);
 	const [toasts, setToasts] = React.useState(settings.toasts);
 	const [historyLimit, setHistoryLimit] = React.useState(settings.historyLimit);
+	const ffmpeg = React.useSyncExternalStore(ffmpegStatus.subscribe, ffmpegStatus.get, ffmpegStatus.get);
+	const ffmpegEncoderState = React.useSyncExternalStore(ffmpegEncoders.subscribe, ffmpegEncoders.get, ffmpegEncoders.get);
 
 	const separator = platformSeparator(typeof __platform === "string" ? __platform : undefined);
-	const converted = conversionFor(outputFormat) !== undefined;
+	const converted = conversionFor(downloadMode, convertFormat) !== undefined;
+	const bitrateApplies = converted && formatUsesBitrate(convertFormat);
+	const ffmpegReady = ffmpeg.path !== undefined && ffmpeg.path !== null;
+	const encoder = requiredEncoder(convertFormat);
+	/** Only claims an encoder is missing once the list has actually been read. */
+	const encoderMissing = (format: ConversionFormat): boolean => {
+		const list = ffmpegEncoderState.encoders;
+		return Array.isArray(list) && !hasEncoder(list, requiredEncoder(format));
+	};
 
 	const preview = React.useMemo(() => {
-		const relative = renderTemplate(pathFormat, SAMPLE_TAGS, { ext: "flac", padTrackNumbers });
+		const relative = renderTemplate(pathFormat, SAMPLE_TAGS, { ext: converted ? convertFormat : "flac", padTrackNumbers });
 		const relativeNative = relative.split("/").join(separator);
 		if (saveMode === "default" && defaultPath !== undefined) return `${defaultPath}${separator}${relativeNative}`;
 		return relativeNative;
-	}, [pathFormat, padTrackNumbers, saveMode, defaultPath, separator]);
+	}, [pathFormat, padTrackNumbers, saveMode, defaultPath, separator, converted, convertFormat]);
 
 	const usedTags = React.useMemo(() => {
 		const used = [...pathFormat.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map((match) => match[1]);
@@ -190,7 +248,11 @@ export const Settings = () => {
 		<LunaSettings>
 			<LunaSelectSetting
 				title="Download quality"
-				desc="Tracks are requested at this quality; RealMAX can upgrade it per track. If a track has no stream at the chosen quality, TiDLoad falls back to HiRes and says so in the list."
+				desc={
+					converted
+						? "Not used while the download method is “Download lossless, convert locally” — that mode always starts from the highest lossless stream."
+						: "Tracks are requested at this quality; RealMAX can upgrade it per track. If a track has no stream at the chosen quality, TiDLoad falls back to HiRes and says so in the list."
+				}
 				value={downloadQuality}
 				onChange={(event) => {
 					const result = setDownloadQuality(event.target.value);
@@ -298,27 +360,81 @@ export const Settings = () => {
 			</div>
 
 			<LunaSelectSetting
-				title="Output format"
+				title="Download method"
 				desc={
 					converted
-						? "Converted formats download LOSSLESS (one fast stream) and convert locally with ffmpeg. The download quality above is ignored while this is set."
-						: "Original keeps TIDAL's file as served. Converting from lossless avoids TIDAL's slow segmented AAC."
+						? "Converts locally: each track is downloaded as LOSSLESS in a single fast stream, then ffmpeg produces the format below. The download quality above is ignored in this mode."
+						: "Downloads exactly what TIDAL serves at the quality above. Lossy tiers are segmented DASH streams, which TIDAL fetches one segment at a time — noticeably slower than a lossless download."
 				}
-				value={outputFormat}
-				onChange={(event) => setOutputFormatState((settings.outputFormat = normaliseOutputFormat(event.target.value)))}
+				value={downloadMode}
+				onChange={(event) => setDownloadModeState((settings.downloadMode = normaliseDownloadMode(event.target.value)))}
 			>
-				{outputFormatOptions().map((option) => (
+				{downloadModeOptions().map((option) => (
 					<LunaSelectItem key={option.value} value={option.value} children={option.description} />
 				))}
 			</LunaSelectSetting>
 
 			{converted && (
-				<LunaSwitchSetting
-					title="Keep the lossless source"
-					desc="Keep the downloaded FLAC next to the converted file (off: the FLAC is deleted after a successful conversion)."
-					checked={keepLosslessSource}
-					onChange={(_event, checked) => setKeepLosslessSource((settings.keepLosslessSource = checked ?? false))}
-				/>
+				<>
+					<LunaSelectSetting
+						title="Convert to"
+						desc={
+							<>
+								ffmpeg runs on the downloaded FLAC and writes this format. Encoder needed: <b>{encoder}</b>.
+								{encoderMissing(convertFormat) && (
+									<div className="tidload-settings__warn">
+										Your ffmpeg does not list <b>{encoder}</b> — pick another format, or install the bundled build from
+										the ffmpeg section below.
+									</div>
+								)}
+								{ffmpegReady ? null : (
+									<div className="tidload-settings__warn">
+										ffmpeg is not set up yet — use the ffmpeg section below to install or locate it, or downloads will
+										keep the FLAC instead of converting.
+									</div>
+								)}
+							</>
+						}
+						value={convertFormat}
+						onChange={(event) => setConvertFormatState((settings.convertFormat = normaliseConvertFormat(event.target.value)))}
+					>
+						{convertFormatOptions().map((option) => (
+							<LunaSelectItem
+								key={option.value}
+								value={option.value}
+								children={
+									encoderMissing(option.value)
+										? `${option.description} — ${requiredEncoder(option.value)} missing in your ffmpeg`
+										: option.description
+								}
+							/>
+						))}
+					</LunaSelectSetting>
+
+					{bitrateApplies && (
+						<LunaSelectSetting
+							title="Conversion bitrate"
+							desc={`Bitrate ffmpeg encodes the ${convertFormat.toUpperCase()} at. 320 kbps matches TIDAL's own lossy tier; lower values trade quality for size. WAV is lossless and ignores this.`}
+							value={String(convertBitrate)}
+							onChange={(event) => setConvertBitrateState((settings.convertBitrate = normaliseConvertBitrate(event.target.value)))}
+						>
+							{BITRATE_OPTIONS.map((kbps) => (
+								<LunaSelectItem
+									key={kbps}
+									value={String(kbps)}
+									children={kbps === DEFAULT_CONVERT_BITRATE ? `${kbps} kbps (default)` : `${kbps} kbps`}
+								/>
+							))}
+						</LunaSelectSetting>
+					)}
+
+					<LunaSwitchSetting
+						title="Keep the lossless source"
+						desc="Keep the downloaded FLAC next to the converted file (off: the FLAC is deleted once the conversion succeeds — a failed conversion always keeps it)."
+						checked={keepLosslessSource}
+						onChange={(_event, checked) => setKeepLosslessSource((settings.keepLosslessSource = checked ?? false))}
+					/>
+				</>
 			)}
 
 			<LunaSwitchSetting
