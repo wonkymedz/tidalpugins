@@ -23,6 +23,7 @@ import {
 	type ArtistAlbumRecord as CoreArtistAlbumRecord,
 } from "./core/artist";
 import { joinPath, platformSeparator } from "./core/paths";
+import { platformForPaths } from "./host";
 import type { ArtistAlbum, TrackMeta, TrackRef } from "./types";
 
 const numberOrUndefined = (value: unknown): number | undefined => {
@@ -208,4 +209,4 @@ const collectTrackRefs = (items: redux.MediaItem[] | undefined): TrackRef[] => {
 
 /** Display path for dialogs and the UI (downloads themselves get a segment array). */
 export const displayPath = (segments: string[]): string =>
-	joinPath(segments, platformSeparator(typeof __platform === "string" ? __platform : undefined));
+	joinPath(segments, platformSeparator(platformForPaths()));

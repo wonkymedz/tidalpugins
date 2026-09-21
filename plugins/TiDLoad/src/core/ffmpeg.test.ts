@@ -25,10 +25,23 @@ describe("ffmpegInstallPlan", () => {
 		expect(plan!.executableName).toBe("ffmpeg.exe");
 	});
 
-	it("is not offered outside Windows amd64", () => {
+	it("accepts every spelling of Windows, and an unknown CPU", () => {
+		// Regression: the installer used to refuse a Windows PC outright because the platform it was handed
+		// was "windows"/"" rather than Node's "win32" (see core/platform.ts).
+		expect(ffmpegInstallPlan("windows", "x64")).toBeDefined();
+		expect(ffmpegInstallPlan("win", "x64")).toBeDefined();
+		// arm64 runs the x64 build under Windows 11's x64 emulation; "unknown" means detection failed but the
+		// platform was still identified from the user agent.
+		expect(ffmpegInstallPlan("win32", "arm64")).toBeDefined();
+		expect(ffmpegInstallPlan("win32", "unknown")).toBeDefined();
+	});
+
+	it("is not offered off Windows, or on a CPU the build cannot run on", () => {
 		expect(ffmpegInstallPlan("darwin", "arm64")).toBeUndefined();
 		expect(ffmpegInstallPlan("linux", "x64")).toBeUndefined();
-		expect(ffmpegInstallPlan("win32", "arm64")).toBeUndefined();
+		expect(ffmpegInstallPlan("win32", "ia32")).toBeUndefined();
+		// An unidentified platform is refused on purpose: guessing would install an .exe on the wrong OS.
+		expect(ffmpegInstallPlan("", "x64")).toBeUndefined();
 	});
 });
 

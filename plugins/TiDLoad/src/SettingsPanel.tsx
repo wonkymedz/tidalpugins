@@ -8,7 +8,7 @@
 import React from "react";
 
 import { MediaItem } from "@luna/lib";
-import { showOpenDialog } from "@luna/lib.native";
+import { openExternal, showOpenDialog } from "@luna/lib.native";
 import { LunaButtonSetting, LunaNumberSetting, LunaSelectItem, LunaSelectSetting, LunaSettings, LunaSwitchSetting, LunaTextSetting } from "@luna/ui";
 
 import { DEFAULT_PATH_FORMAT, SAMPLE_TAGS, TEMPLATE_PRESETS, renderTemplate } from "./core/template";
@@ -28,7 +28,8 @@ import {
 	requiredEncoder,
 	type ConversionFormat,
 } from "./core/convert";
-import { hasEncoder } from "./core/ffmpeg";
+import { FFMPEG_DOWNLOAD_PAGE, hasEncoder } from "./core/ffmpeg";
+import { describeHost } from "./core/platform";
 import { clearQueue, downloadedCount, engine, forgetDownloaded } from "./engine";
 import {
 	ffmpegEncoders,
@@ -39,6 +40,7 @@ import {
 	refreshFfmpegStatus,
 	setFfmpegPath,
 } from "./ffmpeg";
+import { host, platformForPaths, redetectHostEnvironment } from "./host";
 import { clearPersistedItems, setDownloadQuality, settings } from "./settings";
 import { refreshNowPlayingButton } from "./nowPlaying";
 import { refreshPlayQueueButton } from "./playQueue";
@@ -76,11 +78,15 @@ const FfmpegRow = () => {
 	const status = React.useSyncExternalStore(ffmpegStatus.subscribe, ffmpegStatus.get, ffmpegStatus.get);
 	const enc = React.useSyncExternalStore(ffmpegEncoders.subscribe, ffmpegEncoders.get, ffmpegEncoders.get);
 	const install = React.useSyncExternalStore(installStatus.subscribe, installStatus.get, installStatus.get);
+	const hostInfo = React.useSyncExternalStore(host.subscribe, host.get, host.get);
 	const [checkedOnce, setCheckedOnce] = React.useState(false);
 	const [busy, setBusy] = React.useState(false);
 
 	/** Locate ffmpeg, then read its encoder list — the two facts the conversion settings depend on. */
 	const recheck = async (): Promise<{ ready: boolean; version?: string; error?: string }> => {
+		// Re-ask which machine this is: if the native module was unreachable the first time (prompts not yet
+		// approved), the cached answer would keep the installer switched off.
+		await redetectHostEnvironment().catch(() => undefined);
 		const result = await refreshFfmpegStatus();
 		const ok = result.path !== undefined && result.path !== null;
 		if (ok) {
@@ -131,6 +137,15 @@ const FfmpegRow = () => {
 					: state}
 			</div>
 			{capabilityLine !== undefined && <div className="tidload-muted">{capabilityLine}</div>}
+			{/* Which machine TiDLoad thinks it is on, and how it worked that out: an install refusal is
+			    almost always this line being wrong. */}
+			<div className="tidload-muted">
+				Host: {describeHost(hostInfo.host)}
+				{hostInfo.nativeError !== undefined ? ` — native module unavailable: ${hostInfo.nativeError}` : ""}
+			</div>
+			{install.stage === "failed" && install.error !== undefined && (
+				<div className="tidload-settings__warn">Install failed: {install.error}</div>
+			)}
 			<div className="tidload-settings__presets">
 				<button type="button" className="tidload-btn tidload-btn--ghost" onClick={() => void recheck()}>
 					Re-check
@@ -189,6 +204,18 @@ const FfmpegRow = () => {
 						Forget saved path
 					</button>
 				)}
+				{/* Always available: a corporate proxy, an antivirus block or an unusual CPU should not be a
+				    dead end. Opens the release page; the zip's bin\ffmpeg.exe is what "Locate ffmpeg…" wants. */}
+				<button
+					type="button"
+					className="tidload-btn tidload-btn--ghost"
+					onClick={() => {
+						void openExternal(FFMPEG_DOWNLOAD_PAGE);
+						toast("TiDLoad: unzip it, then use “Locate ffmpeg…” on bin\\ffmpeg.exe", { kind: "info", timeout: 12000 });
+					}}
+				>
+					Get ffmpeg manually…
+				</button>
 			</div>
 			<div className="tidload-muted">
 				TiDLoad runs ffmpeg as a separate process, so the first check asks TidaLuna for file and process access (two
@@ -220,7 +247,7 @@ export const Settings = () => {
 	const ffmpeg = React.useSyncExternalStore(ffmpegStatus.subscribe, ffmpegStatus.get, ffmpegStatus.get);
 	const ffmpegEncoderState = React.useSyncExternalStore(ffmpegEncoders.subscribe, ffmpegEncoders.get, ffmpegEncoders.get);
 
-	const separator = platformSeparator(typeof __platform === "string" ? __platform : undefined);
+	const separator = platformSeparator(platformForPaths());
 	const converted = conversionFor(downloadMode, convertFormat) !== undefined;
 	const bitrateApplies = converted && formatUsesBitrate(convertFormat);
 	const ffmpegReady = ffmpeg.path !== undefined && ffmpeg.path !== null;

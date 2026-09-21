@@ -27,6 +27,7 @@ import {
 	replaceExtension,
 } from "./core/convert";
 import { fileName } from "./core/paths";
+import { initHost } from "./host";
 import {
 	addItems,
 	clearCompleted as clearCompletedItems,
@@ -158,6 +159,11 @@ export const init = async (deps: EngineDependencies): Promise<void> => {
 			schedulePersist();
 		},
 	});
+
+	// Work out the host before anything builds a path: `__platform` is not exposed by every Luna build, so
+	// the renderer's own hints are consulted too. This is the cheap, native-free pass on purpose — asking
+	// the main process here would raise TidaLuna's file/process prompts at client startup.
+	initHost();
 
 	const persisted = await loadPersistedItems();
 	state.update({ items: persisted, initialised: true });

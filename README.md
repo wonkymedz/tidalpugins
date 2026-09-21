@@ -73,7 +73,7 @@ Skipped entries are labelled in the list: **Already on disk** (filesystem found 
 | Convert to | Shown in convert mode: `M4A — AAC` · `MP3 — libmp3lame` · `WAV — lossless`. Each option names the encoder it needs, and says so if your ffmpeg is missing it. |
 | Conversion bitrate | Shown in convert mode for M4A/MP3: `128` · `192` · `256` · `320 kbps` (default). WAV is lossless and ignores it. |
 | Keep the lossless source | Keep the downloaded FLAC next to the converted file (off: the FLAC is deleted after a successful conversion). |
-| ffmpeg | Status of the ffmpeg TiDLoad will use, which encoders it has, and *Re-check*, *Locate ffmpeg…*, *Download & install* (Windows, pinned 9.0.2, SHA-256 verified) and *Forget saved path*. |
+| ffmpeg | Status of the ffmpeg TiDLoad will use, which encoders it has, the host it detected, and *Re-check*, *Locate ffmpeg…*, *Download & install* (Windows, pinned 9.0.2, SHA-256 verified), *Get ffmpeg manually…* and *Forget saved path*. |
 | Use RealMAX | Searches other releases by ISRC for a higher quality copy of each track. |
 | Save location | Ask every time, or always use the default folder. |
 | File and folder template | e.g. `{artist}/{album}/{trackNumber} - {title}` — `/` creates folders; a live preview and preset buttons are shown. |
@@ -117,6 +117,8 @@ ffmpeg -i <track>.flac … -c:a aac -b:a 320k -c:v copy -disposition:v attached_
 - The format list names the encoder each target needs (`aac`, `libmp3lame`, `pcm_s16le`) and warns when the located ffmpeg does not list it; the ffmpeg section shows the encoders it found at a glance.
 
 **ffmpeg is required for this.** TidaLuna does not let plugins touch the filesystem or spawn processes by itself, so TiDLoad ships one small native module (`src/ffmpeg.native.ts`) that asks for `fs` and `child_process` — two one-time prompts from TidaLuna, remembered against a hash of that file. The plugin never bundles ffmpeg: it looks for an existing install (TiDLoad's own folder, winget Links, chocolatey, Program Files, `PATH`) and, if you ask it to, downloads the pinned **GyanD/codexffmpeg 9.0.2 “essentials”** build into `%LOCALAPPDATA%\TiDLoad\ffmpeg\bin` after verifying its SHA-256. That build is GPL; TiDLoad only runs it as a separate process.
+
+Not every machine can be detected the same way, so the ffmpeg section prints the host it worked out (`Host: win32 / x64 (native)`) and offers three routes: **Download & install** (Windows), **Locate ffmpeg…** for a copy you already have, and **Get ffmpeg manually…** if a proxy, antivirus or unusual CPU gets in the way — that opens the release page, and the `bin\ffmpeg.exe` inside the zip is what *Locate* wants. Platform detection asks the client's main process first and only falls back to the renderer's `__platform` global and user agent, because not every TidaLuna build defines that global (older ones do not, which TiDLoad used to misread as "not Windows").
 
 ### Download quality
 

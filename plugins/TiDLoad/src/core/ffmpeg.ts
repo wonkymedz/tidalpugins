@@ -21,13 +21,24 @@ export type FfmpegInstallPlan = {
 
 export const ffmpegExecutableName = (platform: string): string => (platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
 
+/** Where to send someone who would rather install ffmpeg themselves. */
+export const FFMPEG_DOWNLOAD_PAGE = `https://github.com/GyanD/codexffmpeg/releases/tag/${FFMPEG_INSTALL_VERSION}`;
+
+/** Architectures the pinned Windows build runs on directly, plus the emulated ones that still work. */
+export const INSTALL_ARCHES = ["x64", "arm64", "unknown"] as const;
+
 /**
- * The download used by the "Download & install" button. Only Windows is offered: on macOS/Linux TiDLoad
- * points at the system/Homebrew ffmpeg instead of shipping a build.
+ * The download used by the "Download & install" button.
+ *
+ * Only Windows is offered: on macOS/Linux TiDLoad points at the system/Homebrew ffmpeg instead of shipping
+ * a build. Gyan's release is x64-only, which is fine on x64 and on Windows 11 arm64 (x64 emulation) — a
+ * machine where it cannot run fails loudly at the final "did it run?" check rather than silently.
  */
 export const ffmpegInstallPlan = (platform: string, arch: string): FfmpegInstallPlan | undefined => {
-	if (platform !== "win32") return undefined;
-	if (arch !== "x64" && arch !== "amd64") return undefined;
+	// Unknown platform is refused on purpose: installing an .exe because detection failed would be worse
+	// than asking the user to point TiDLoad at ffmpeg. Windows in any spelling, however, is accepted.
+	if (platform !== "win32" && platform !== "windows" && platform !== "win") return undefined;
+	if (!(INSTALL_ARCHES as readonly string[]).includes(arch)) return undefined;
 
 	const folder = `ffmpeg-${FFMPEG_INSTALL_VERSION}-essentials_build`;
 	return {

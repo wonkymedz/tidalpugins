@@ -42,6 +42,19 @@ vi.mock("./convert", () => ({
 	cancelActiveConversion: async () => {},
 }));
 
+/**
+ * The engine is pinned to Windows here so the paths it builds do not depend on the machine running the
+ * tests — `displayPath` uses whatever platform detection reports (see host.ts).
+ */
+vi.mock("./host", () => ({
+	host: { get: () => ({ env: {}, host: { platform: "win32", arch: "x64", source: "native" } }) },
+	initHost: () => ({ platform: "win32", arch: "x64", source: "native" }),
+	detectHostEnvironment: async () => ({ env: {}, host: { platform: "win32", arch: "x64", source: "native" } }),
+	redetectHostEnvironment: async () => ({ env: {}, host: { platform: "win32", arch: "x64", source: "native" } }),
+	platformNow: () => "win32",
+	platformForPaths: () => "win32",
+}));
+
 import { Album } from "@luna/lib";
 import { createQueueItem } from "./core/queue";
 import { clearQueue, engine, enqueueCollection, init, shutdown, start } from "./engine";
@@ -56,8 +69,9 @@ const trace = {
 	},
 } as never;
 
-const FOLDER = "/music";
-const trackPath = (title: string, trackNumber: number) => `${FOLDER}/Stub Artist/Stub Album/${String(trackNumber).padStart(2, "0")} - ${title}.flac`;
+const FOLDER = "C:\\music";
+const trackPath = (title: string, trackNumber: number) =>
+	`${FOLDER}\\Stub Artist\\Stub Album\\${String(trackNumber).padStart(2, "0")} - ${title}.flac`;
 
 const settle = async (): Promise<void> => {
 	await vi.waitFor(

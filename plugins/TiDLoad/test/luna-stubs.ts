@@ -267,7 +267,10 @@ export class MediaItem {
 		if (track?.behaviour === "already") return;
 		// Long enough for the engine's progress poller to see a sample (default 300ms).
 		await new Promise((resolve) => setTimeout(resolve, track?.downloadDelayMs ?? 300));
-		lunaStub.onDownload?.(Array.isArray(path) ? path.join("/") : path, this.id);
+		// The real client joins a segment array with the platform separator; the engine tests pin the host to
+		// Windows (see engine.test.ts), so the stand-in has to join the same way or "already on disk" would
+		// compare two spellings of the same path.
+		lunaStub.onDownload?.(Array.isArray(path) ? path.join("\\") : path, this.id);
 	}
 }
 

@@ -11,7 +11,9 @@ import type { Tracer } from "@luna/core";
 
 import { ffmpegCandidates, ffmpegInstallDir, ffmpegInstallPlan, hasEncoder } from "./core/ffmpeg";
 import { createObservable } from "./core/store";
-import { encoders, env, findFfmpeg, installFfmpeg, installProgress, probe } from "./ffmpeg.native";
+import { describeHost } from "./core/platform";
+import { detectHostEnvironment } from "./host";
+import { encoders, findFfmpeg, installFfmpeg, installProgress, probe } from "./ffmpeg.native";
 import { settings } from "./settings";
 
 export type FfmpegStatus = {
@@ -38,8 +40,8 @@ export const refreshFfmpegStatus = async (trace?: Tracer): Promise<FfmpegStatus>
 		ffmpegStatus.update({ checking: true, error: undefined });
 
 		try {
-			const platform = typeof __platform === "string" ? __platform : "";
-			const environment = await env();
+			const { env: environment, host: detected } = await detectHostEnvironment();
+			const platform = detected.platform ?? "";
 
 			const configured = settings.ffmpegPath;
 			const candidates = [
@@ -175,11 +177,24 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * PATH — it just fails with a checksum error.
  */
 export const installManagedFfmpeg = async (): Promise<{ path?: string; version?: string; error?: string }> => {
-	const platform = typeof __platform === "string" ? __platform : "";
-	const environment = await env();
-	const plan = ffmpegInstallPlan(platform, environment.arch ?? "x64");
+	const { env: environment, host: detected, nativeError } = await detectHostEnvironment();
+	const platform = detected.platform;
+
+	// The installer needs the filesystem and a process; without the native module there is nothing to try.
+	if (nativeError !== undefined && environment.USERPROFILE === undefined && environment.HOME === undefined) {
+		return {
+			error: `TiDLoad's native module is unavailable (${nativeError}). Allow TidaLuna's file/process prompts for TiDLoad, then try again — or use “Locate ffmpeg…”.`,
+		};
+	}
+
+	const plan = ffmpegInstallPlan(platform ?? "", detected.arch);
 	if (plan === undefined) {
-		return { error: "Automatic install is only offered on Windows — use “Locate ffmpeg…” instead." };
+		return {
+			error:
+				platform === undefined
+					? `TiDLoad could not tell which system it is running on (${describeHost(detected)}), so it will not guess at an installer. Use “Locate ffmpeg…” or “Get ffmpeg manually”.`
+					: `The automatic installer only handles Windows on x64/arm64 — this machine reports ${describeHost(detected)}. Use “Locate ffmpeg…” or “Get ffmpeg manually”.`,
+		};
 	}
 
 	installStatus.set({ stage: "downloading", received: 0, total: 0 });
@@ -197,7 +212,8 @@ export const installManagedFfmpeg = async (): Promise<{ path?: string; version?:
 			plan.url,
 			plan.sha256,
 			plan.archiveMember,
-			ffmpegInstallDir(platform, environment),
+			// The plan only ever exists for Windows, so the install directory is the Windows one.
+			ffmpegInstallDir("win32", environment),
 			plan.executableName,
 		);
 		setFfmpegPath(result.path);

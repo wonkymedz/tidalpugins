@@ -90,7 +90,11 @@ export const fileExists = async (path: string): Promise<boolean> => {
 
 /**
  * The environment the sandbox exposes (see TidaLuna's `secureLoad`: only a whitelisted subset of
- * `process.env` is visible). The render side uses this to build its candidate list.
+ * `process.env` is visible), plus the two facts only the main process can be trusted for.
+ *
+ * `platform`/`arch` matter: the renderer's `__platform` global is not defined by every TidaLuna build, and
+ * TiDLoad deciding it is running on an unknown system is what made the ffmpeg installer refuse to run on a
+ * Windows PC.
  */
 export const env = async (): Promise<Record<string, string | undefined>> => ({
 	USERPROFILE: process.env.USERPROFILE,
@@ -99,6 +103,7 @@ export const env = async (): Promise<Record<string, string | undefined>> => ({
 	PATH: process.env.PATH,
 	TEMP: process.env.TEMP ?? process.env.TMP,
 	arch: process.arch,
+	platform: process.platform,
 });
 
 /** First candidate that actually exists on disk. */
