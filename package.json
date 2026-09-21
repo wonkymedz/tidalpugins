@@ -1,0 +1,35 @@
+{
+	"name": "TiDLoad",
+	"description": "TiDLoad — a download manager for TidaLuna. Tracks, albums, playlists and artists.",
+	"type": "module",
+	"license": "AGPL-3.0-or-later",
+	"author": {
+		"name": "Wonkymedz",
+		"url": "https://github.com/Wonkymedz"
+	},
+	"homepage": "https://github.com/Wonkymedz/tidalpugins",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Wonkymedz/tidalpugins.git"
+	},
+	"scripts": {
+		"watch": "concurrently \"pnpm:build --watch\" pnpm:serve",
+		"build": "rimraf ./dist && tsx esbuild.config.ts",
+		"serve": "http-server ./dist -p 3000 -s --cors -c-1",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"@types/node": "^25.0.9",
+		"@types/react": "^19.2.8",
+		"@types/react-dom": "^19.2.3",
+		"concurrently": "^9.2.1",
+		"http-server": "^14.1.1",
+		"luna": "github:Inrixia/TidaLuna",
+		"oby": "^15.1.2",
+		"rimraf": "^6.1.2",
+		"tsx": "^4.21.0",
+		"typescript": "^5.9.3",
+		"vitest": "^3.2.4"
+	}
+}

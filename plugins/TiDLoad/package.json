@@ -1,0 +1,16 @@
+{
+	"name": "TiDLoad",
+	"version": "1.0.0",
+	"description": "Download manager for Tidal — queue up tracks, albums, playlists and artists with a live UI.",
+	"homepage": "https://github.com/Wonkymedz/tidalpugins#readme",
+	"author": {
+		"name": "Wonkymedz",
+		"url": "https://github.com/Wonkymedz"
+	},
+	"license": "AGPL-3.0-or-later",
+	"main": "./src/index.tsx",
+	"type": "module",
+	"dependencies": {
+		"sanitize-filename": "^1.6.3"
+	}
+}

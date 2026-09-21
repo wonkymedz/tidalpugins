@@ -1,0 +1,22 @@
+TiDLoad
+Copyright (C) 2026 Wonkymedz
+
+This program is free software: you can redistribute it and/or modify it under the
+terms of the GNU Affero General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later version.
+See the LICENSE file for the full text.
+
+--------------------------------------------------------------------------------
+Attribution
+--------------------------------------------------------------------------------
+
+TiDLoad is a derivative work. It was written from scratch for this repository, but
+its download flow follows the approach of the "Song Downloader" plugin from
+Inrixia/luna-plugins (https://github.com/Inrixia/luna-plugins), which is also
+licensed AGPL-3.0. Credit for the original plugin, the TidaLuna plugin API and the
+build tooling (luna-template, https://github.com/Inrixia/luna-template) belongs to
+Inrixia and the TidaLuna contributors.
+
+TiDLoad does not talk to Tidal directly. It drives the TidaLuna client API
+(@luna/core, @luna/lib, @luna/ui) running inside the TIDAL desktop app, and it only
+downloads content the signed-in user can already stream.

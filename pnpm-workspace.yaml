@@ -1,0 +1,7 @@
+packages:
+  - "plugins/*"
+
+# esbuild's postinstall is required for the bundler to run.
+# pnpm 11 blocks dependency build scripts by default and writes this key when it does.
+allowBuilds:
+  esbuild: true

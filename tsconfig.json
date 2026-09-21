@@ -1,0 +1,10 @@
+{
+	"extends": "luna/tsconfig.json",
+	"compilerOptions": {
+		"baseUrl": ".",
+		"esModuleInterop": true,
+		"types": ["node"],
+		"paths": {}
+	},
+	"include": ["plugins/**/*.ts", "plugins/**/*.tsx", "types/**/*.d.ts", "vitest.config.ts"]
+}

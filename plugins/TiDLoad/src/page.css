@@ -1,0 +1,595 @@
+/* TiDLoad page, toasts and settings styles.
+   Everything is namespaced with `tidload-` so nothing leaks into TIDAL's own UI. */
+
+.tidload-page {
+	--tidload-accent: #32f4ff;
+	--tidload-bg: rgba(0, 0, 0, 0.28);
+	--tidload-bg-strong: rgba(0, 0, 0, 0.45);
+	--tidload-border: rgba(255, 255, 255, 0.08);
+	--tidload-text: #f2f2f2;
+	--tidload-muted: rgba(255, 255, 255, 0.6);
+	--tidload-good: #4cd964;
+	--tidload-warn: #ffb300;
+	--tidload-bad: #ff5b5b;
+
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 1100px;
+	margin: 0 auto;
+	padding: 32px 24px 64px;
+	color: var(--tidload-text);
+	font-size: 14px;
+	line-height: 1.45;
+	text-align: left;
+}
+
+.tidload-page * {
+	box-sizing: border-box;
+}
+
+/* #region header */
+
+.tidload-header {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.tidload-brand {
+	font-size: 26px;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+}
+
+.tidload-brand__accent {
+	color: var(--tidload-accent);
+}
+
+.tidload-brand__meta {
+	margin-left: 12px;
+	color: var(--tidload-muted);
+	font-size: 12px;
+	font-weight: 400;
+}
+
+.tidload-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+/* #endregion */
+
+/* #region buttons + inputs */
+
+.tidload-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 14px;
+	border: 1px solid var(--tidload-border);
+	border-radius: 999px;
+	background: var(--tidload-bg-strong);
+	color: var(--tidload-text);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	transition:
+		background 0.15s ease,
+		border-color 0.15s ease,
+		opacity 0.15s ease;
+}
+
+.tidload-btn:hover:not(:disabled) {
+	border-color: rgba(255, 255, 255, 0.28);
+	background: rgba(255, 255, 255, 0.12);
+}
+
+.tidload-btn:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
+.tidload-btn--primary {
+	border-color: transparent;
+	background: var(--tidload-accent);
+	color: #04121a;
+	font-weight: 600;
+}
+
+.tidload-btn--primary:hover:not(:disabled) {
+	background: #7ef7ff;
+}
+
+.tidload-btn--ghost {
+	background: transparent;
+}
+
+.tidload-btn--active {
+	border-color: var(--tidload-accent);
+	color: var(--tidload-accent);
+}
+
+.tidload-btn--icon {
+	padding: 4px 8px;
+	border-radius: 6px;
+	font-size: 13px;
+	line-height: 1;
+}
+
+.tidload-input {
+	flex: 1;
+	min-width: 220px;
+	padding: 10px 14px;
+	border: 1px solid var(--tidload-border);
+	border-radius: 8px;
+	background: var(--tidload-bg);
+	color: var(--tidload-text);
+	font: inherit;
+	font-size: 13px;
+}
+
+.tidload-input::placeholder {
+	color: rgba(255, 255, 255, 0.4);
+}
+
+.tidload-input:focus {
+	outline: none;
+	border-color: var(--tidload-accent);
+}
+
+.tidload-add {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+/* #endregion */
+
+/* #region stats + cards */
+
+.tidload-stats {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+	gap: 8px;
+}
+
+.tidload-stat {
+	padding: 12px 14px;
+	border: 1px solid var(--tidload-border);
+	border-radius: 10px;
+	background: var(--tidload-bg);
+}
+
+.tidload-stat__value {
+	font-size: 20px;
+	font-weight: 600;
+}
+
+.tidload-stat__label {
+	color: var(--tidload-muted);
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.tidload-card {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 16px;
+	border: 1px solid var(--tidload-border);
+	border-radius: 14px;
+	background: var(--tidload-bg);
+}
+
+.tidload-card__header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.tidload-card__title {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 600;
+}
+
+.tidload-empty,
+.tidload-muted {
+	color: var(--tidload-muted);
+	font-size: 13px;
+}
+
+.tidload-error {
+	color: var(--tidload-bad);
+	font-size: 13px;
+}
+
+.tidload-resolving {
+	padding: 8px 12px;
+	border-radius: 8px;
+	background: rgba(50, 244, 255, 0.12);
+	color: var(--tidload-accent);
+	font-size: 13px;
+}
+
+/* #endregion */
+
+/* #region active download */
+
+.tidload-active {
+	display: flex;
+	gap: 14px;
+	align-items: center;
+	padding: 14px;
+	border: 1px solid rgba(50, 244, 255, 0.35);
+	border-radius: 14px;
+	background: linear-gradient(180deg, rgba(50, 244, 255, 0.1), rgba(0, 0, 0, 0.3));
+}
+
+.tidload-active__cover {
+	width: 64px;
+	height: 64px;
+	border-radius: 8px;
+	object-fit: cover;
+}
+
+.tidload-active__body {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+}
+
+.tidload-active__title {
+	font-size: 15px;
+	font-weight: 600;
+}
+
+.tidload-active__meta,
+.tidload-active__stats {
+	color: var(--tidload-muted);
+	font-size: 12px;
+}
+
+.tidload-active__stats {
+	display: flex;
+	gap: 14px;
+}
+
+/* #endregion */
+
+/* #region progress bar */
+
+.tidload-bar {
+	position: relative;
+	overflow: hidden;
+	width: 100%;
+	height: 6px;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.14);
+}
+
+.tidload-bar__fill {
+	height: 100%;
+	border-radius: 999px;
+	background: var(--tidload-accent);
+	transition: width 0.25s ease;
+}
+
+.tidload-bar__fill--indeterminate {
+	background: linear-gradient(90deg, rgba(50, 244, 255, 0.15), var(--tidload-accent), rgba(50, 244, 255, 0.15));
+	background-size: 200% 100%;
+	animation: tidload-indeterminate 1.4s linear infinite;
+}
+
+@keyframes tidload-indeterminate {
+	from {
+		background-position: 200% 0;
+	}
+	to {
+		background-position: -200% 0;
+	}
+}
+
+/* #endregion */
+
+/* #region queue + history rows */
+
+.tidload-row {
+	display: flex;
+	gap: 12px;
+	align-items: center;
+	padding: 10px 12px;
+	border: 1px solid transparent;
+	border-radius: 10px;
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.tidload-row + .tidload-row {
+	margin-top: 6px;
+}
+
+.tidload-row--active {
+	border-color: rgba(50, 244, 255, 0.35);
+}
+
+.tidload-row--failed {
+	border-color: rgba(255, 91, 91, 0.35);
+}
+
+.tidload-row__index {
+	width: 24px;
+	color: var(--tidload-muted);
+	font-variant-numeric: tabular-nums;
+	font-size: 12px;
+	text-align: right;
+}
+
+.tidload-row__cover {
+	width: 40px;
+	height: 40px;
+	border-radius: 6px;
+	object-fit: cover;
+}
+
+.tidload-row__cover--empty {
+	background: rgba(255, 255, 255, 0.08);
+}
+
+.tidload-row__main {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 0;
+}
+
+.tidload-row__title {
+	overflow: hidden;
+	font-size: 14px;
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tidload-row__meta {
+	overflow: hidden;
+	color: var(--tidload-muted);
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tidload-row__path,
+.tidload-row__error {
+	overflow: hidden;
+	font-size: 11px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tidload-row__path {
+	color: rgba(255, 255, 255, 0.45);
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.tidload-row__error {
+	color: var(--tidload-bad);
+}
+
+.tidload-row__actions {
+	display: flex;
+	gap: 4px;
+	align-items: center;
+}
+
+/* #endregion */
+
+/* #region status chips */
+
+.tidload-chip {
+	flex-shrink: 0;
+	padding: 3px 10px;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.1);
+	color: var(--tidload-muted);
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	white-space: nowrap;
+}
+
+.tidload-chip--active {
+	background: rgba(50, 244, 255, 0.2);
+	color: var(--tidload-accent);
+}
+
+.tidload-chip--done {
+	background: rgba(76, 217, 100, 0.18);
+	color: var(--tidload-good);
+}
+
+.tidload-chip--skipped {
+	background: rgba(255, 179, 0, 0.16);
+	color: var(--tidload-warn);
+}
+
+.tidload-chip--failed {
+	background: rgba(255, 91, 91, 0.18);
+	color: var(--tidload-bad);
+}
+
+/* #endregion */
+
+/* #region artist picker */
+
+.tidload-picker {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+	gap: 6px;
+	max-height: 340px;
+	overflow-y: auto;
+	padding-right: 4px;
+}
+
+.tidload-picker__item {
+	display: flex;
+	gap: 8px;
+	align-items: baseline;
+	padding: 8px 10px;
+	border: 1px solid var(--tidload-border);
+	border-radius: 8px;
+	background: rgba(255, 255, 255, 0.03);
+	cursor: pointer;
+}
+
+.tidload-picker__item:hover {
+	background: rgba(255, 255, 255, 0.07);
+}
+
+.tidload-picker__title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	font-size: 13px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tidload-picker__meta {
+	color: var(--tidload-muted);
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+.tidload-picker__actions {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+/* #endregion */
+
+/* #region footer + settings blocks */
+
+.tidload-footer {
+	padding-top: 8px;
+	color: rgba(255, 255, 255, 0.4);
+	font-size: 11px;
+}
+
+.tidload-settings__block {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 12px;
+	border-radius: 8px;
+	background: rgba(0, 0, 0, 0.20);
+}
+
+.tidload-settings__label {
+	color: var(--tidload-muted);
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.tidload-settings__preview {
+	display: block;
+	overflow-x: auto;
+	padding: 10px 12px;
+	border-radius: 6px;
+	background: rgba(0, 0, 0, 0.45);
+	color: var(--tidload-accent);
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+.tidload-settings__presets {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.tidload-settings__warn {
+	margin-top: 6px;
+	color: var(--tidload-warn);
+}
+
+/* #endregion */
+
+/* #region toasts */
+
+.tidload-toasts {
+	position: fixed;
+	right: 20px;
+	bottom: 20px;
+	z-index: 2147483000;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	align-items: flex-end;
+	pointer-events: none;
+}
+
+.tidload-toast {
+	display: flex;
+	gap: 12px;
+	align-items: center;
+	max-width: 420px;
+	padding: 12px 14px;
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: 10px;
+	background: rgba(16, 16, 20, 0.96);
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+	color: #f2f2f2;
+	font-size: 13px;
+	pointer-events: auto;
+	animation: tidload-toast-in 0.18s ease-out;
+}
+
+.tidload-toast--success {
+	border-color: rgba(76, 217, 100, 0.5);
+}
+
+.tidload-toast--error {
+	border-color: rgba(255, 91, 91, 0.6);
+}
+
+.tidload-toast__text {
+	flex: 1;
+}
+
+.tidload-toast__action {
+	padding: 4px 10px;
+	border: 1px solid var(--tidload-accent, #32f4ff);
+	border-radius: 999px;
+	background: transparent;
+	color: var(--tidload-accent, #32f4ff);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+@keyframes tidload-toast-in {
+	from {
+		transform: translateY(8px);
+		opacity: 0;
+	}
+	to {
+		transform: translateY(0);
+		opacity: 1;
+	}
+}
+
+/* #endregion */

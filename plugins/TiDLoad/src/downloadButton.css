@@ -1,0 +1,24 @@
+/* Progress fill for TiDLoad's context menu entry.
+   The button element TidaLuna clones gets the `tidload-progress` class and a `--tidload-progress`
+   custom property (0-100%) while a download is running. */
+
+.tidload-progress {
+	position: relative;
+	overflow: hidden;
+}
+
+.tidload-progress::after {
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	width: var(--tidload-progress, 0%);
+	height: 2px;
+	background: #32f4ff;
+	content: "";
+	transition: width 0.25s ease;
+}
+
+.tidload-progress > span {
+	position: relative;
+	z-index: 1;
+}
