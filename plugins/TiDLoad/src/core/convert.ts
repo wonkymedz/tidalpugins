@@ -27,18 +27,22 @@ export type DownloadModeOption = {
 	description: string;
 };
 
+/**
+ * Dropdown text. TidaLuna renders a select item's `children` (not the `label` field), so every description
+ * starts with the option's own name — otherwise the collapsed select shows only a sentence.
+ */
 export const downloadModeOptions = (): DownloadModeOption[] => [
 	{
 		value: "segmented",
 		label: "TIDAL stream (as served)",
 		description:
-			"Download at the chosen quality exactly as TIDAL serves it. Lossy tiers come as many small DASH segments, which is slower per track.",
+			"TIDAL stream (as served) — exactly what TIDAL returns for the chosen quality. Lossy tiers come back as many small DASH segments, which is slower per track.",
 	},
 	{
 		value: "convert",
 		label: "Download lossless, convert locally",
 		description:
-			"One fast lossless download, then ffmpeg produces the format and bitrate below. Faster than segmented AAC and never re-encodes lossy audio.",
+			"Download lossless, convert locally — one fast lossless download per track, then ffmpeg produces the format and bitrate below.",
 	},
 ];
 
@@ -64,14 +68,19 @@ export const convertFormatOptions = (): ConvertFormatOption[] => [
 	{
 		value: "m4a",
 		label: "M4A — AAC",
-		description: "AAC in an MP4 container, embedded cover art, faststart for streaming",
+		description: "M4A — AAC, in an MP4 container with embedded cover art and faststart for streaming",
 		lossy: true,
 	},
-	{ value: "mp3", label: "MP3 — libmp3lame", description: "MP3 with ID3v2.3 tags and embedded cover art", lossy: true },
+	{
+		value: "mp3",
+		label: "MP3 — libmp3lame",
+		description: "MP3 — libmp3lame, with ID3v2.3 tags and embedded cover art",
+		lossy: true,
+	},
 	{
 		value: "wav",
 		label: "WAV — lossless",
-		description: "PCM (pcm_s16le). Lossless, but roughly 3× the size of the FLAC",
+		description: "WAV — lossless PCM (pcm_s16le). Roughly 3× the size of the FLAC",
 		lossy: false,
 	},
 ];
