@@ -7,7 +7,7 @@
 
 import React from "react";
 
-import { MediaItem, Quality } from "@luna/lib";
+import { MediaItem } from "@luna/lib";
 import { showOpenDialog } from "@luna/lib.native";
 import { LunaButtonSetting, LunaNumberSetting, LunaSelectItem, LunaSelectSetting, LunaSettings, LunaSwitchSetting, LunaTextSetting } from "@luna/ui";
 
