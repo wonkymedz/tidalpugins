@@ -7,7 +7,7 @@
  * without TIDAL.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { lunaStub } from "../test/luna-stubs";
 
@@ -25,7 +25,7 @@ vi.mock("./disk.native", () => ({
 }));
 
 import { Album } from "@luna/lib";
-import { clearQueue, engine, enqueueCollection, init, start } from "./engine";
+import { clearQueue, engine, enqueueCollection, init, shutdown, start } from "./engine";
 import { settings } from "./settings";
 import type { QueueItem } from "./types";
 
@@ -90,6 +90,12 @@ beforeEach(async () => {
 	await init({ trace, unloads: new Set(), openPage: () => {} });
 	await clearQueue();
 	await quiesce();
+});
+
+// Tear down like the plugin does on unload: stops the persist debounce and clears toast timers, so
+// nothing fires after the jsdom environment is gone (which vitest reports as an unhandled error).
+afterEach(() => {
+	shutdown();
 });
 
 describe("engine downloads", () => {
