@@ -41,6 +41,20 @@ export const lunaStub = {
 	storage: new Map<string, unknown>(),
 	/** Called after a stub download finishes, so tests can pretend the file now exists. */
 	onDownload: undefined as ((path: string, trackId: number) => void) | undefined,
+	/** Fake redux state (play queue, content store) that tests can mutate. */
+	state: {
+		content: { albums: {} as Record<string, unknown>, mediaItems: {} as Record<string, { item: { id: number }; type: "track" | "video" }> },
+		playQueue: {
+			elements: [] as { mediaItemId: number; uid: string; priority: string; context: { type: string } }[],
+			backupElements: [],
+			originalSource: [],
+			currentIndex: 0,
+			sourceName: "",
+			sourceEntityType: "",
+			shuffleModeEnabled: false,
+			repeatMode: 0,
+		},
+	},
 	reset() {
 		this.tracks.clear();
 		this.downloads.length = 0;
@@ -48,6 +62,10 @@ export const lunaStub = {
 		this.openDialog = { canceled: false, filePaths: ["C:/TiDLoad"] };
 		this.storage.clear();
 		progressCursor.clear();
+		this.state.content.albums = {};
+		this.state.content.mediaItems = {};
+		this.state.playQueue.elements = [];
+		this.state.playQueue.sourceName = "";
 	},
 };
 
@@ -312,11 +330,38 @@ export const TidalApi = {
 };
 
 export const redux = {
-	store: { getState: () => ({ content: { albums: {} } }) },
+	store: { getState: () => lunaStub.state },
 	actions: {},
 	intercept: () => () => {},
 	interceptActionResp: async () => ({}),
 };
+
+export class PlayState {
+	static get playQueue() {
+		return lunaStub.state.playQueue as never;
+	}
+	static nextMediaItem() {
+		return Promise.resolve(undefined);
+	}
+	static previousMediaItem() {
+		return Promise.resolve(undefined);
+	}
+	static get playing() {
+		return false;
+	}
+	static get shuffle() {
+		return false;
+	}
+	static get repeatMode() {
+		return 0;
+	}
+	static play() {}
+	static next() {}
+	static previous() {}
+	static pause() {}
+	static seek() {}
+	static setShuffle() {}
+}
 
 export class StyleTag {
 	constructor(

@@ -15,6 +15,7 @@ import { DEFAULT_PATH_FORMAT, SAMPLE_TAGS, TEMPLATE_PRESETS, renderTemplate } fr
 import { platformSeparator } from "./core/paths";
 import { clearQueue, downloadedCount, engine, forgetDownloaded } from "./engine";
 import { clearPersistedItems, settings } from "./settings";
+import { refreshPlayQueueButton } from "./playQueue";
 import { refreshSidebarEntry } from "./sidebar";
 import { toast } from "./notify";
 
@@ -40,6 +41,7 @@ export const Settings = () => {
 	const [useRealMAX, setUseRealMAX] = React.useState(settings.useRealMAX);
 	const [menuAction, setMenuAction] = React.useState(settings.menuAction);
 	const [sidebarEntry, setSidebarEntry] = React.useState(settings.sidebarEntry);
+	const [queueButton, setQueueButton] = React.useState(settings.queueButton);
 	const [skipExisting, setSkipExisting] = React.useState(settings.skipExisting);
 	const [restoreQueue, setRestoreQueue] = React.useState(settings.restoreQueue);
 	const [toasts, setToasts] = React.useState(settings.toasts);
@@ -170,6 +172,16 @@ export const Settings = () => {
 				desc="Before downloading, TiDLoad checks its own records and then the filesystem at the exact destination path. The filesystem check asks TidaLuna for 'fs' access once (a security prompt) — block it and TiDLoad falls back to the client's own silent skip."
 				checked={skipExisting}
 				onChange={(_event, checked) => setSkipExisting((settings.skipExisting = checked ?? true))}
+			/>
+
+			<LunaSwitchSetting
+				title="Play queue button"
+				desc="Add a 'Download queue' button to the play queue view, next to Add to playlist. It queues everything currently in the play queue."
+				checked={queueButton}
+				onChange={(_event, checked) => {
+					setQueueButton((settings.queueButton = checked ?? true));
+					refreshPlayQueueButton();
+				}}
 			/>
 
 			<LunaSwitchSetting

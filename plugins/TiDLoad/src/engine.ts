@@ -309,6 +309,8 @@ const enqueueTracks = async (refs: TrackRef[], source: string, options: EnqueueO
 	return { added: result.added + result.requeued, duplicates: result.duplicates };
 };
 
+export const enqueueTrackRefs = enqueueTracks;
+
 export const enqueueCollection = async (collection: MediaCollection, options: EnqueueOptions = {}): Promise<void> => {
 	const source = await labelForCollection(collection);
 	const refs: TrackRef[] = [];

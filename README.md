@@ -11,6 +11,7 @@ Queue up **tracks, albums, playlists and artists**, watch them download with liv
 ## Features
 
 - **Sidebar entry** — a *TiDLoad* button in TIDAL's left navigation (next to Explore/Feed), with a badge showing the queue depth or the live download percentage. Switchable in settings.
+- **Download queue button in the play queue** — sits next to *Add to playlist* in the play queue view and queues everything currently in the queue, labelled with the count and the queue's source.
 - **One downloads list** — the queue and everything already downloaded live in the same list. Filter by All / Queued / Finished / Failed; reorder queued items, retry failures, re-download or reveal finished files, clear finished entries.
 - **Skips what you already have** — before downloading, TiDLoad checks its own records and then the real filesystem at the exact destination path. Re-adding an album downloads only the tracks whose files are missing.
 - **Downloads manager page** (`?TiDLoad`, reachable from the sidebar, from any right-click menu, or the deep link `tidaluna://` routes)
@@ -72,6 +73,7 @@ Skipped entries are labelled in the list: **Already on disk** (filesystem found 
 | Zero pad track numbers | `{trackNumber}` → `01`, `02`, … (disc numbers stay as-is). |
 | Context menu click | Queue and start, or queue only. |
 | Sidebar entry | Show the TiDLoad button in TIDAL's sidebar (applies immediately). |
+| Play queue button | Show the *Download queue* button in the play queue view (applies immediately). |
 | Skip files that are already downloaded | Check records + the filesystem before downloading (see above). |
 | On client restart | Restore the queue paused, resume automatically, or discard it. |
 | Show toasts | In-app notifications (errors always show). |
@@ -111,6 +113,7 @@ plugins/TiDLoad/
     tidal.ts            Tidal client calls: metadata, collections, artist albums
     contextMenu.ts      right-click integration (tracks → album → artist)
     sidebar.ts          sidebar entry (cloned from TIDAL's own nav items)
+    playQueue.ts        "Download queue" button injected into the play queue view
     disk.native.ts      main-process file checks (kept tiny so TidaLuna's fs approval survives edits)
     DownloadsPage.tsx   the manager UI
     SettingsPanel.tsx   settings UI (also rendered by Luna Settings)
@@ -128,6 +131,10 @@ types/luna.d.ts         ambient types for the TidaLuna plugin API
 ### Sidebar entry
 
 TIDAL's sidebar is rendered by the TIDAL web app, so the entry is added by cloning one of TIDAL's own nav items (`[data-test="sidebar-explore"]`, `sidebar-music`, `sidebar-feed`, or any other `[data-test^="sidebar-"]` row if those are renamed), rewiring it into a button that opens TiDLoad, and swapping in a download icon. Cloning keeps it consistent with whatever layout, theme or collapsed state the sidebar is in. A `MutationObserver` re-inserts it when TIDAL re-renders the sidebar, and it is removed again when the plugin unloads or the setting is switched off. Tests for all of this live in `plugins/TiDLoad/src/sidebar.test.ts` (jsdom).
+
+### Play queue button
+
+The play queue view is TIDAL's, so the button is injected the same way: TIDAL's *Add to playlist* action (falling back to *Clear play queue*, then the heading's own row) is located by its label, and the button is cloned from it so it matches the toolbar. The queue contents come from the client's redux state — `PlayState.playQueue.elements` — not from the DOM, and each entry keeps its content type (play queue videos stay videos). The count in the label refreshes as the queue changes, and the queue is re-read at click time so it always downloads what is *currently* queued. Covered by `plugins/TiDLoad/src/playQueue.test.ts`.
 
 ### Why `types/luna.d.ts` exists
 

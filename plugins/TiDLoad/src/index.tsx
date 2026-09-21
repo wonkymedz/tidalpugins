@@ -17,7 +17,8 @@ import pageStyles from "file://page.css?minify";
 import { DownloadsPage } from "./DownloadsPage";
 import { Settings } from "./SettingsPanel";
 import { registerContextMenu } from "./contextMenu";
-import { init as initEngine, shutdown } from "./engine";
+import { enqueueTrackRefs, init as initEngine, shutdown } from "./engine";
+import { installPlayQueueButton } from "./playQueue";
 import { installSidebarEntry } from "./sidebar";
 
 export const { trace, errSignal } = Tracer("[TiDLoad]");
@@ -37,8 +38,11 @@ const openPage = () => page.open();
 
 registerContextMenu(unloads, trace, openPage);
 installSidebarEntry(unloads, trace, openPage);
+installPlayQueueButton(unloads, trace, (queue) => {
+	void enqueueTrackRefs(queue.refs, queue.label, { start: true, batchSize: queue.refs.length });
+});
 unloads.add(shutdown);
 
 await initEngine({ trace, unloads, openPage });
 
-trace.msg.log("TiDLoad loaded — sidebar entry, right-click menus and the ?TiDLoad page are ready");
+trace.msg.log("TiDLoad loaded — sidebar, play queue button, right-click menus and the ?TiDLoad page are ready");

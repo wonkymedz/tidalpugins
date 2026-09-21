@@ -541,6 +541,13 @@
 	cursor: pointer;
 }
 
+/* The injected play queue button must stay clickable whatever TIDAL does to its toolbar siblings. */
+[data-tidload-queue] {
+	opacity: 1 !important;
+	pointer-events: auto !important;
+	cursor: pointer;
+}
+
 .tidload-filters {
 	display: flex;
 	flex-wrap: wrap;

@@ -21,6 +21,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	useRealMAX: true,
 	menuAction: "start",
 	sidebarEntry: true,
+	queueButton: true,
 	skipExisting: true,
 	restoreQueue: "paused",
 	toasts: true,
@@ -36,6 +37,7 @@ if (typeof settings.historyLimit !== "number" || settings.historyLimit < 0) sett
 if (settings.saveMode !== "default" && settings.saveMode !== "ask") settings.saveMode = DEFAULT_SETTINGS.saveMode;
 if (settings.menuAction !== "start" && settings.menuAction !== "queue") settings.menuAction = DEFAULT_SETTINGS.menuAction;
 if (typeof settings.sidebarEntry !== "boolean") settings.sidebarEntry = DEFAULT_SETTINGS.sidebarEntry;
+if (typeof settings.queueButton !== "boolean") settings.queueButton = DEFAULT_SETTINGS.queueButton;
 if (typeof settings.skipExisting !== "boolean") settings.skipExisting = DEFAULT_SETTINGS.skipExisting;
 if (settings.restoreQueue !== "paused" && settings.restoreQueue !== "auto" && settings.restoreQueue !== "discard") {
 	settings.restoreQueue = DEFAULT_SETTINGS.restoreQueue;

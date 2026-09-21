@@ -86,6 +86,8 @@ export type Settings = {
 	menuAction: MenuAction;
 	/** Show a TiDLoad entry in TIDAL's left sidebar. */
 	sidebarEntry: boolean;
+	/** Show a "Download queue" button in the play queue view. */
+	queueButton: boolean;
 	/** Skip a track when the destination file already exists (asks for filesystem access once). */
 	skipExisting: boolean;
 	restoreQueue: RestoreBehaviour;

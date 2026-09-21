@@ -150,6 +150,26 @@ declare module "@luna/lib" {
 		type MediaItem = { item: Track; type: ContentType };
 		type Lyrics = { lyrics?: string; subtitles?: string };
 
+		type PlayQueueElement = {
+			mediaItemId: ItemId;
+			uid: string;
+			priority: string;
+			context: { type: string; id?: ItemId | null; playQueueItemsLimit?: number | null };
+		};
+		type PlayQueue = {
+			elements: PlayQueueElement[];
+			backupElements: PlayQueueElement[];
+			originalSource: PlayQueueElement[];
+			currentIndex: number;
+			sourceName?: string;
+			sourceEntityId?: string;
+			sourceEntityType?: string;
+			sourceUrl?: string;
+			type?: string;
+			shuffleModeEnabled: boolean;
+			repeatMode: number;
+		};
+
 		const store: { getState: () => any; dispatch: (action: any) => any };
 		const actions: Record<string, (...args: any[]) => any>;
 		const intercept: <T = any>(
@@ -318,6 +338,25 @@ declare module "@luna/lib" {
 		readonly tidalArtist: redux.Artist;
 		readonly name: string;
 		coverUrl(res?: TCoverRes): string | undefined;
+	}
+
+	export class PlayState {
+		/** The live play queue from the client's redux store. */
+		static readonly playQueue: redux.PlayQueue;
+		static nextMediaItem(): Promise<MediaItem | undefined>;
+		static previousMediaItem(): Promise<MediaItem | undefined>;
+		static readonly playing: boolean;
+		static readonly state: string;
+		static readonly shuffle: boolean;
+		static readonly repeatMode: number;
+		static readonly currentTime: number;
+		static readonly playbackContext: any;
+		static play(mediaItemId?: redux.ItemId): any;
+		static next(): any;
+		static previous(): any;
+		static pause(): any;
+		static seek(position: number): any;
+		static setShuffle(shuffle: boolean, shuffleItems?: boolean): any;
 	}
 
 	export class TidalApi {
