@@ -18,6 +18,7 @@ import { DownloadsPage } from "./DownloadsPage";
 import { Settings } from "./SettingsPanel";
 import { registerContextMenu } from "./contextMenu";
 import { init as initEngine, shutdown } from "./engine";
+import { installSidebarEntry } from "./sidebar";
 
 export const { trace, errSignal } = Tracer("[TiDLoad]");
 export const unloads = new Set<LunaUnload>();
@@ -35,8 +36,9 @@ radial-gradient(ellipse at bottom right, rgba(88, 10, 82, 0.35), transparent 65%
 const openPage = () => page.open();
 
 registerContextMenu(unloads, trace, openPage);
+installSidebarEntry(unloads, trace, openPage);
 unloads.add(shutdown);
 
 await initEngine({ trace, unloads, openPage });
 
-trace.msg.log("TiDLoad loaded — right-click a track, album, playlist or artist to download");
+trace.msg.log("TiDLoad loaded — sidebar entry, right-click menus and the ?TiDLoad page are ready");

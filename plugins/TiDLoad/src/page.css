@@ -528,6 +528,39 @@
 
 /* #endregion */
 
+/* #region sidebar entry */
+
+.tidload-sidebar-badge {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 18px;
+	height: 18px;
+	margin-left: 6px;
+	padding: 0 5px;
+	border-radius: 9px;
+	background: #32f4ff;
+	color: #04121a;
+	font-size: 10px;
+	font-weight: 700;
+	line-height: 1;
+	vertical-align: middle;
+}
+
+.tidload-sidebar-badge[hidden] {
+	display: none;
+}
+
+[data-test="sidebar-tidload"] {
+	cursor: pointer;
+}
+
+[data-test="sidebar-tidload"][aria-current="page"] {
+	color: #32f4ff;
+}
+
+/* #endregion */
+
 /* #region toasts */
 
 .tidload-toasts {

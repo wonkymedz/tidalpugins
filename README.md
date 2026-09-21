@@ -10,7 +10,8 @@ Queue up **tracks, albums, playlists and artists**, watch them download with liv
 
 ## Features
 
-- **Downloads manager page** (`?TiDLoad`, reachable from any right-click menu → *Open TiDLoad*)
+- **Sidebar entry** — a *TiDLoad* button in TIDAL's left navigation (next to Explore/Feed), with a badge showing the queue depth or the live download percentage. Switchable in settings.
+- **Downloads manager page** (`?TiDLoad`, reachable from the sidebar, any right-click menu → *Open TiDLoad*, or the deep link `tidaluna://` routes)
   - Queue table with cover art, status, quality, per-track progress, speed and ETA
   - Pause / resume the queue, reorder pending items, remove items, retry failed ones, clear finished ones
   - Global stats: queued, downloading, downloaded, already present, failed, bytes transferred
@@ -55,6 +56,7 @@ This builds to `dist/` and serves it on `http://127.0.0.1:3000`. In TIDAL open *
 | File and folder template | e.g. `{artist}/{album}/{trackNumber} - {title}` — `/` creates folders; a live preview and preset buttons are shown. |
 | Zero pad track numbers | `{trackNumber}` → `01`, `02`, … (disc numbers stay as-is). |
 | Context menu click | Queue and start, or queue only. |
+| Sidebar entry | Show the TiDLoad button in TIDAL's sidebar (applies immediately). |
 | On client restart | Restore the queue paused, resume automatically, or discard it. |
 | Show toasts | In-app notifications (errors always show). |
 | History entries | How many completed downloads to remember (`0` keeps none). |
@@ -92,6 +94,7 @@ plugins/TiDLoad/
     engine.ts           queue, download loop, progress, history, persistence
     tidal.ts            Tidal client calls: metadata, collections, artist albums
     contextMenu.ts      right-click integration
+    sidebar.ts          sidebar entry (cloned from TIDAL's own nav items)
     DownloadsPage.tsx   the manager UI
     SettingsPanel.tsx   settings UI (also rendered by Luna Settings)
     settings.ts         settings store + persisted queue/history
@@ -103,6 +106,10 @@ types/luna.d.ts         ambient types for the TidaLuna plugin API
 ```
 
 `core/*` never imports `@luna/*` at runtime, which is what makes the queue, template and parser logic testable outside TIDAL.
+
+### Sidebar entry
+
+TIDAL's sidebar is rendered by the TIDAL web app, so the entry is added by cloning one of TIDAL's own nav items (`[data-test="sidebar-explore"]`, `sidebar-music`, `sidebar-feed`, or any other `[data-test^="sidebar-"]` row if those are renamed), rewiring it into a button that opens TiDLoad, and swapping in a download icon. Cloning keeps it consistent with whatever layout, theme or collapsed state the sidebar is in. A `MutationObserver` re-inserts it when TIDAL re-renders the sidebar, and it is removed again when the plugin unloads or the setting is switched off. Tests for all of this live in `plugins/TiDLoad/src/sidebar.test.ts` (jsdom).
 
 ### Why `types/luna.d.ts` exists
 

@@ -83,6 +83,8 @@ export type Settings = {
 	padTrackNumbers: boolean;
 	useRealMAX: boolean;
 	menuAction: MenuAction;
+	/** Show a TiDLoad entry in TIDAL's left sidebar. */
+	sidebarEntry: boolean;
 	restoreQueue: RestoreBehaviour;
 	toasts: boolean;
 	historyLimit: number;

@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	padTrackNumbers: true,
 	useRealMAX: true,
 	menuAction: "start",
+	sidebarEntry: true,
 	restoreQueue: "paused",
 	toasts: true,
 	historyLimit: 500,
@@ -32,6 +33,7 @@ if (typeof settings.pathFormat !== "string" || settings.pathFormat.trim() === ""
 if (typeof settings.historyLimit !== "number" || settings.historyLimit < 0) settings.historyLimit = DEFAULT_SETTINGS.historyLimit;
 if (settings.saveMode !== "default" && settings.saveMode !== "ask") settings.saveMode = DEFAULT_SETTINGS.saveMode;
 if (settings.menuAction !== "start" && settings.menuAction !== "queue") settings.menuAction = DEFAULT_SETTINGS.menuAction;
+if (typeof settings.sidebarEntry !== "boolean") settings.sidebarEntry = DEFAULT_SETTINGS.sidebarEntry;
 if (settings.restoreQueue !== "paused" && settings.restoreQueue !== "auto" && settings.restoreQueue !== "discard") {
 	settings.restoreQueue = DEFAULT_SETTINGS.restoreQueue;
 }

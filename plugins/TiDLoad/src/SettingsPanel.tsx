@@ -15,6 +15,7 @@ import { DEFAULT_PATH_FORMAT, SAMPLE_TAGS, TEMPLATE_PRESETS, renderTemplate } fr
 import { platformSeparator } from "./core/paths";
 import { clearHistory, clearQueue, engine } from "./engine";
 import { clearPersistedHistory, clearPersistedQueue, settings } from "./settings";
+import { refreshSidebarEntry } from "./sidebar";
 import { toast } from "./notify";
 
 const QUALITY_OPTIONS = Object.values(Quality.lookups.audioQuality).filter(
@@ -38,6 +39,7 @@ export const Settings = () => {
 	const [padTrackNumbers, setPadTrackNumbers] = React.useState(settings.padTrackNumbers);
 	const [useRealMAX, setUseRealMAX] = React.useState(settings.useRealMAX);
 	const [menuAction, setMenuAction] = React.useState(settings.menuAction);
+	const [sidebarEntry, setSidebarEntry] = React.useState(settings.sidebarEntry);
 	const [restoreQueue, setRestoreQueue] = React.useState(settings.restoreQueue);
 	const [toasts, setToasts] = React.useState(settings.toasts);
 	const [historyLimit, setHistoryLimit] = React.useState(settings.historyLimit);
@@ -161,6 +163,16 @@ export const Settings = () => {
 					</button>
 				</div>
 			</div>
+
+			<LunaSwitchSetting
+				title="Sidebar entry"
+				desc="Show a TiDLoad button in TIDAL's left sidebar, next to Explore/Feed. Its badge shows the queue depth or the live download percentage."
+				checked={sidebarEntry}
+				onChange={(_event, checked) => {
+					setSidebarEntry((settings.sidebarEntry = checked ?? true));
+					refreshSidebarEntry();
+				}}
+			/>
 
 			<LunaSelectSetting
 				title="Context menu click"
