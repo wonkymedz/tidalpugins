@@ -13,6 +13,7 @@ import type { LunaUnloads, Tracer } from "@luna/core";
 import { PlayState, redux } from "@luna/lib";
 
 import { pluralise } from "./core/format";
+import { applyDownloadIcon, createDownloadIcon, isIconElement } from "./icons";
 import { settings } from "./settings";
 import type { TrackRef } from "./types";
 
@@ -102,6 +103,31 @@ export const findPlayQueueAnchor = (): { panel: Element; anchor?: HTMLElement } 
 	return undefined;
 };
 
+const queueLabel = (count: number): string => {
+	const tracks = pluralise(count, "track");
+	return `TiDLoad: download ${tracks} from the play queue`;
+};
+
+/** Keeps the button an icon button: original TIDAL markup, our download icon, no visible text. */
+const renderIconButton = (button: HTMLElement, count: number): void => {
+	const svg = button.querySelector("svg");
+	if (svg !== null) applyDownloadIcon(svg);
+	else button.prepend(createDownloadIcon());
+
+	// Drop any label text (and its wrapper text) but keep the elements TIDAL uses for padding/layout.
+	for (const node of [...button.childNodes]) {
+		if (node.nodeType === Node.TEXT_NODE) node.textContent = "";
+	}
+	for (const element of [...button.querySelectorAll<HTMLElement>("*")]) {
+		if (isIconElement(element)) continue;
+		if (element.children.length === 0 && (element.textContent ?? "").trim() !== "") element.textContent = "";
+	}
+
+	const label = queueLabel(count);
+	button.setAttribute("aria-label", label);
+	button.setAttribute("title", label);
+};
+
 export const buildQueueButton = (
 	template: HTMLElement | undefined,
 	contents: PlayQueueContents,
@@ -119,22 +145,11 @@ export const buildQueueButton = (
 	button.style.opacity = "1";
 	button.style.pointerEvents = "auto";
 
-	const label = `Download queue (${contents.refs.length})`;
-
-	// Keep the anchor's icon if it has one, and rewrite its text label.
-	const textHolder = [...button.querySelectorAll<HTMLElement>("*")].find(
-		(element) => element.children.length === 0 && (element.textContent ?? "").trim() !== "" && element.tagName !== "svg",
-	);
-	if (textHolder !== undefined) textHolder.textContent = label;
-	else button.textContent = label;
-	button.setAttribute("aria-label", `TiDLoad: download ${pluralise(contents.refs.length, "track")} from the play queue`);
-	button.setAttribute("title", `TiDLoad: download ${pluralise(contents.refs.length, "track")} from the play queue`);
+	renderIconButton(button, contents.refs.length);
 
 	const activate = (event: Event) => {
 		event.preventDefault();
 		event.stopPropagation();
-		button.setAttribute(QUEUE_BUTTON_ATTRIBUTE, "true");
-		if (button.hasAttribute("disabled")) button.removeAttribute("disabled");
 		const current = readPlayQueue();
 		if (current !== undefined) onDownload(current);
 	};
@@ -170,15 +185,12 @@ export const installPlayQueueButton = (
 		const anchorInfo = findPlayQueueAnchor();
 		if (anchorInfo === undefined) return;
 
-		// Already injected into this panel — just keep the count fresh.
+		// Already injected into this panel — just keep the tooltip's count fresh.
 		if (existing !== null && anchorInfo.panel.contains(existing)) {
-			const expected = `Download queue (${contents.refs.length})`;
-			if (!(existing.textContent ?? "").includes(expected)) {
-				const holder = [...existing.querySelectorAll<HTMLElement>("*")].find(
-					(element) => element.children.length === 0 && (element.textContent ?? "").trim() !== "",
-				);
-				if (holder !== undefined) holder.textContent = expected;
-				else existing.textContent = expected;
+			const label = queueLabel(contents.refs.length);
+			if (existing.getAttribute("aria-label") !== label) {
+				existing.setAttribute("aria-label", label);
+				existing.setAttribute("title", label);
 			}
 			return;
 		}

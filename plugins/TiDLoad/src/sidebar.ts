@@ -15,6 +15,7 @@ import { redux } from "@luna/lib";
 
 import { percentOf } from "./core/format";
 import { engine } from "./engine";
+import { applyDownloadIcon } from "./icons";
 import { settings } from "./settings";
 
 export const SIDEBAR_ITEM_SELECTOR = '[data-test="sidebar-tidload"]';
@@ -31,9 +32,6 @@ const TEMPLATE_SELECTORS = [
 const ANCHOR_SELECTORS = ['[data-test="sidebar-feed"]', '[data-test="sidebar-explore"]', '[data-test="sidebar-music"]'];
 
 const LABEL = "TiDLoad";
-/** Download arrow into a tray, 24x24. */
-const ICON_PATH = "M11 3h2v8h3.5L12 16.5 7.5 11H11V3zM5 18h14v2H5z";
-
 const REINJECT_DELAY_MS = 250;
 
 const isRenderableElement = (element: Element): boolean =>
@@ -79,12 +77,7 @@ export const buildSidebarItem = (template: Element, openPage: () => void): HTMLE
 
 	// Swap the cloned icon for a download icon.
 	const svg = item.querySelector("svg");
-	if (svg !== null) {
-		svg.setAttribute("viewBox", "0 0 24 24");
-		svg.setAttribute("fill", "currentColor");
-		svg.setAttribute("stroke", "none");
-		svg.innerHTML = `<path d="${ICON_PATH}"/>`;
-	}
+	if (svg !== null) applyDownloadIcon(svg);
 
 	// Relabel it.
 	const labelElement = findSidebarLabelElement(item);

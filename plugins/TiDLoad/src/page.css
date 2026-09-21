@@ -543,9 +543,18 @@
 
 /* The injected play queue button must stay clickable whatever TIDAL does to its toolbar siblings. */
 [data-tidload-queue] {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	opacity: 1 !important;
 	pointer-events: auto !important;
 	cursor: pointer;
+}
+
+[data-tidload-queue] svg {
+	display: block;
+	width: 20px;
+	height: 20px;
 }
 
 .tidload-filters {

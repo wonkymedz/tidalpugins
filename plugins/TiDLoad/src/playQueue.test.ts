@@ -92,20 +92,30 @@ describe("readPlayQueue", () => {
 });
 
 describe("installPlayQueueButton", () => {
-	it("injects the button next to Add to playlist", () => {
+	it("injects an icon button next to Add to playlist", () => {
 		installPlayQueueButton(new Set(), trace, () => {});
 
 		const injected = button();
 		expect(injected).not.toBeNull();
 		expect(injected!.previousElementSibling?.getAttribute("data-test")).toBe("add-to-playlist");
-		expect(injected!.textContent).toContain("Download queue (3)");
 		expect(injected!.hasAttribute("data-test")).toBe(false);
-		expect(injected!.getAttribute("aria-label")).toContain("3 tracks");
 	});
 
-	it("keeps TIDAL's icon and styling from the cloned button", () => {
+	it("renders the download icon and no visible text", () => {
 		installPlayQueueButton(new Set(), trace, () => {});
-		expect(button()!.querySelector("svg")).not.toBeNull();
+
+		const injected = button()!;
+		expect(injected.querySelector("svg path")?.getAttribute("d")).toContain("M11 3h2v8h3.5");
+		expect((injected.textContent ?? "").trim()).toBe("");
+		// The count moves into the tooltip/label since there is no text
+		expect(injected.getAttribute("aria-label")).toBe("TiDLoad: download 3 tracks from the play queue");
+		expect(injected.getAttribute("title")).toBe("TiDLoad: download 3 tracks from the play queue");
+	});
+
+	it("keeps TIDAL's button wrapper so the toolbar spacing survives", () => {
+		installPlayQueueButton(new Set(), trace, () => {});
+		// The cloned button had an icon wrapper; ours must still be an element, not a bare icon
+		expect(button()!.children.length).toBeGreaterThan(0);
 	});
 
 	it("downloads the whole queue when clicked", () => {
@@ -129,14 +139,16 @@ describe("installPlayQueueButton", () => {
 		expect(onDownload.mock.calls[0][0].refs.map((ref: { id: number }) => ref.id)).toEqual([3]);
 	});
 
-	it("updates the count when the queue changes", async () => {
+	it("updates the tooltip count when the queue changes", async () => {
 		installPlayQueueButton(new Set(), trace, () => {});
 		setQueue([1, 2]);
-		document.body.dispatchEvent(new Event("tidload-test-nudge"));
 		// The observer is the only thing that re-runs ensure(); nudge the DOM so it fires.
 		document.querySelector(".items")!.appendChild(document.createElement("li"));
 
-		await vi.waitFor(() => expect(button()!.textContent).toContain("Download queue (2)"), { timeout: 2000, interval: 25 });
+		await vi.waitFor(() => expect(button()!.getAttribute("aria-label")).toBe("TiDLoad: download 2 tracks from the play queue"), {
+			timeout: 2000,
+			interval: 25,
+		});
 	});
 
 	it("does not inject while the play queue view is closed", () => {
@@ -166,7 +178,8 @@ describe("installPlayQueueButton", () => {
 
 		const injected = button();
 		expect(injected).not.toBeNull();
-		expect(injected!.textContent).toContain("Download queue (3)");
+		expect(injected!.querySelector("svg")).not.toBeNull();
+		expect(injected!.getAttribute("aria-label")).toContain("3 tracks");
 	});
 
 	it("cleans up its observer and button on unload", () => {
@@ -180,11 +193,13 @@ describe("installPlayQueueButton", () => {
 });
 
 describe("buildQueueButton", () => {
-	it("builds a standalone button when there is nothing to clone", () => {
+	it("builds a standalone icon button when there is nothing to clone", () => {
 		const contents = { refs: [{ id: 1 }], label: "Play queue" };
 		const built = buildQueueButton(undefined, contents, () => {});
 		expect(built.tagName).toBe("BUTTON");
 		expect(built.className).toContain("tidload-btn");
-		expect(built.textContent).toContain("Download queue (1)");
+		expect(built.querySelector("svg path")).not.toBeNull();
+		expect((built.textContent ?? "").trim()).toBe("");
+		expect(built.getAttribute("title")).toContain("1 track");
 	});
 });
