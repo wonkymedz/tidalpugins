@@ -362,7 +362,8 @@ const runLoop = async (): Promise<void> => {
 			batchDestinations.clear();
 			if (state.get().running) state.update({ running: false });
 			persistNow();
-			reportSummary();
+			// Only announce a result when the queue actually drained — a manual pause should stay quiet.
+			if (nextPending(state.get().items) === undefined) reportSummary();
 		}
 	})();
 
