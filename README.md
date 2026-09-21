@@ -11,7 +11,7 @@ Queue up **tracks, albums, playlists and artists**, watch them download with liv
 ## Features
 
 - **Sidebar entry** — a *TiDLoad* button in TIDAL's left navigation (next to Explore/Feed), with a badge showing the queue depth or the live download percentage. Switchable in settings.
-- **Download queue button in the play queue** — sits next to *Add to playlist* in the play queue view and queues everything currently in the queue, labelled with the count and the queue's source.
+- **Download queue button in the play queue** — a download icon next to *Add to playlist* in the play queue view; queues everything currently in the queue (its tooltip carries the count and the queue's source).
 - **One downloads list** — the queue and everything already downloaded live in the same list. Filter by All / Queued / Finished / Failed; reorder queued items, retry failures, re-download or reveal finished files, clear finished entries.
 - **Skips what you already have** — before downloading, TiDLoad checks its own records and then the real filesystem at the exact destination path. Re-adding an album downloads only the tracks whose files are missing.
 - **Downloads manager page** (`?TiDLoad`, reachable from the sidebar, from any right-click menu, or the deep link `tidaluna://` routes)
@@ -134,7 +134,7 @@ TIDAL's sidebar is rendered by the TIDAL web app, so the entry is added by cloni
 
 ### Play queue button
 
-The play queue view is TIDAL's, so the button is injected the same way: TIDAL's *Add to playlist* action (falling back to *Clear play queue*, then the heading's own row) is located by its label, and the button is cloned from it so it matches the toolbar. The queue contents come from the client's redux state — `PlayState.playQueue.elements` — not from the DOM, and each entry keeps its content type (play queue videos stay videos). The count in the label refreshes as the queue changes, and the queue is re-read at click time so it always downloads what is *currently* queued. Covered by `plugins/TiDLoad/src/playQueue.test.ts`.
+The play queue view is TIDAL's, so the button is injected the same way: TIDAL's *Add to playlist* action (falling back to *Clear play queue*, then the heading's own row) is located by its label, and the button is cloned from it so it matches the toolbar — with TIDAL's icon replaced by TiDLoad's download icon and the label text removed, so it reads as a native icon button (the queue count lives in the tooltip/`aria-label`). The queue contents come from the client's redux state — `PlayState.playQueue.elements` — not from the DOM, and each entry keeps its content type (play queue videos stay videos). The count refreshes as the queue changes, and the queue is re-read at click time so it always downloads what is *currently* queued. Covered by `plugins/TiDLoad/src/playQueue.test.ts`.
 
 ### Why `types/luna.d.ts` exists
 
