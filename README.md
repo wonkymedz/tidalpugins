@@ -41,8 +41,8 @@ This builds to `dist/` and serves it on `http://127.0.0.1:3000`. In TIDAL open *
 ### From a published store
 
 1. Open **Luna Settings → Plugin Store**.
-2. Paste the store URL into **Install from URL** (for a fork of this repo:
-   `https://github.com/<you>/<repo>/releases/download/latest/store.json`).
+2. Paste the store URL into **Install from URL**:
+   `https://github.com/wonkymedz/tidalpugins/releases/download/latest/store.json`
 3. Install **TiDLoad**.
 
 ## Usage
